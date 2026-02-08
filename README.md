@@ -13,6 +13,22 @@
 
 ## 설치 방법 (Installation)
 
+### 1. 바이너리 설치 (권장)
+
+[Releases 페이지](https://github.com/your-repo/ncp-nuke/releases)에서 운영체제에 맞는 파일을 다운로드하세요.
+
+*   **Windows:** `ncp-nuke-windows-amd64.msi`를 다운로드하여 실행하면 자동으로 설치되고 `PATH`에 등록됩니다.
+*   **macOS:** `ncp-nuke-darwin-arm64.dmg` (Apple Silicon) 또는 `tar.gz` 파일을 다운로드합니다.
+    *   DMG를 마운트한 후, 실행 파일을 원하는 경로(예: `/usr/local/bin`)로 복사하거나 심볼릭 링크를 생성해야 터미널에서 바로 사용할 수 있습니다.
+    ```bash
+    # 예시: 다운로드한 바이너리를 /usr/local/bin으로 이동
+    sudo mv /path/to/downloaded/ncp-nuke /usr/local/bin/
+    sudo chmod +x /usr/local/bin/ncp-nuke
+    ```
+*   **Linux:** `tar.gz` 파일을 다운로드하여 압축을 풀고 PATH에 있는 경로로 이동시킵니다.
+
+### 2. 소스 코드 빌드
+
 Go 언어(1.22 이상)가 설치되어 있어야 합니다.
 
 ```bash
