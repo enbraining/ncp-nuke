@@ -51,8 +51,8 @@ jobs:
       # WiX Toolset은 windows-latest 러너에 기본 설치되어 있음
       - name: Build MSI
         run: |
-          candle build/package/windows/ncp-cli.wxs
-          light -out ncp-nuke-windows-amd64.msi ncp-cli.wixobj
+          candle build/package/windows/ncp-nuke.wxs
+          light -out ncp-nuke-windows-amd64.msi ncp-nuke.wixobj
       
       - name: Upload MSI to Release
         uses: softprops/action-gh-release@v1
