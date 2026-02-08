@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # 1. 일반 바이너리 빌드 및 릴리즈 (Linux, macOS, Windows - Archive 형식)
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 2. Windows MSI 패키징
+  msi-windows:
+    needs: goreleaser
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      
+      - name: Build Binary
+        run: go build -o ncp-cli.exe main.go
+      
+      # WiX Toolset은 windows-latest 러너에 기본 설치되어 있음
+      - name: Build MSI
+        run: |
+          candle build/package/windows/ncp-cli.wxs
+          light -out ncp-cli-windows-amd64.msi ncp-cli.wixobj
+      
+      - name: Upload MSI to Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ncp-cli-windows-amd64.msi
+
+  # 3. macOS DMG 패키징
+  dmg-macos:
+    needs: goreleaser
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      
+      - name: Build Binary
+        run: GOOS=darwin GOARCH=arm64 go build -o ncp-cli main.go
+      
+      - name: Install create-dmg
+        run: brew install create-dmg
+      
+      - name: Create DMG
+        run: |
+          mkdir -p dist
+          cp ncp-cli dist/
+          create-dmg \
+            --volname "NCP Sub Account CLI" \
+            --volicon "build/assets/icon.icns" \
+            --window-pos 200 120 \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --icon "ncp-cli" 200 190 \
+            --hide-extension "ncp-cli" \
+            --app-drop-link 600 185 \
+            "ncp-cli-darwin-arm64.dmg" \
+            "dist/"
+        continue-on-error: true # 아이콘이 없으면 경고가 뜰 수 있음
+
+      - name: Upload DMG to Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ncp-cli-darwin-arm64.dmg
