@@ -53,10 +53,14 @@ jobs:
       # WiX Toolset은 windows-latest 러너에 기본 설치되어 있음
       - name: Build MSI
         run: |
-          # 태그 이름에서 'v' 제거 (예: v1.0.5 -> 1.0.5)
-          $Version = "${{ github.ref_name }}".TrimStart("v")
-          echo "Building MSI for version $Version"
-          candle -dVersion=$Version build/package/windows/ncp-nuke.wxs
+          $Tag = "${{ github.ref_name }}"
+          $Version = $Tag.TrimStart("v")
+          # Ensure version has 4 parts (e.g., 1.0.0 -> 1.0.0.0)
+          if ($Version.Split('.').Count -eq 3) {
+            $Version = "$Version.0"
+          }
+          Write-Host "Building MSI for version $Version"
+          candle "-dVersion=$Version" build/package/windows/ncp-nuke.wxs
           light -out ncp-nuke-windows-amd64.msi ncp-nuke.wixobj
       
       - name: Upload MSI to Release
