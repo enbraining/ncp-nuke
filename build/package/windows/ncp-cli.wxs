@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product Id="*" Name="NCP Sub Account CLI" Language="1042" Version="1.0.0.0" Manufacturer="Enbraining" UpgradeCode="PUT-GUID-HERE-1234-5678-90AB-CDEF12345678">
+        <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+
+        <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+        <MediaTemplate EmbedCab="yes" />
+
+        <Feature Id="ProductFeature" Title="NCP Sub Account CLI" Level="1">
+            <ComponentGroupRef Id="ProductComponents" />
+            <ComponentRef Id="PathEnvironment" />
+        </Feature>
+    </Product>
+
+    <Fragment>
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFiles64Folder">
+                <Directory Id="INSTALLFOLDER" Name="NCP Sub Account CLI" />
+            </Directory>
+        </Directory>
+    </Fragment>
+
+    <Fragment>
+        <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+            <Component Id="ProductComponent" Guid="*">
+                <File Source="ncp-cli.exe" KeyPath="yes" />
+            </Component>
+        </ComponentGroup>
+
+        <Component Id="PathEnvironment" Directory="INSTALLFOLDER" Guid="PUT-GUID-HERE-1111-2222-3333-444455556666">
+            <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" />
+            <CreateFolder />
+        </Component>
+    </Fragment>
+</Wix>

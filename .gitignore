@@ -1,0 +1,26 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+ncp-nuke
+ncp-cli
+
+# IDEs
+.vscode/
+.idea/
+
+# Excel temporary files
+~$*.xlsx
+
+# Local configuration/test files
+accounts.xlsx
+*.log
+
+# Dependency directories
+vendor/
+
+# OS generated files
+.DS_Store
+Thumbs.db
