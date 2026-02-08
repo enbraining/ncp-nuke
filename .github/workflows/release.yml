@@ -46,12 +46,17 @@ jobs:
           go-version: '1.22'
       
       - name: Build Binary
+        env:
+          CGO_ENABLED: 0
         run: go build -o ncp-nuke.exe main.go
       
       # WiX Toolset은 windows-latest 러너에 기본 설치되어 있음
       - name: Build MSI
         run: |
-          candle build/package/windows/ncp-nuke.wxs
+          # 태그 이름에서 'v' 제거 (예: v1.0.5 -> 1.0.5)
+          $Version = "${{ github.ref_name }}".TrimStart("v")
+          echo "Building MSI for version $Version"
+          candle -dVersion=$Version build/package/windows/ncp-nuke.wxs
           light -out ncp-nuke-windows-amd64.msi ncp-nuke.wixobj
       
       - name: Upload MSI to Release
@@ -74,7 +79,7 @@ jobs:
           go-version: '1.22'
       
       - name: Build Binary
-        run: GOOS=darwin GOARCH=arm64 go build -o ncp-nuke main.go
+        run: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o ncp-nuke main.go
       
       - name: Install create-dmg
         run: brew install create-dmg
@@ -85,7 +90,6 @@ jobs:
           cp ncp-nuke dist/
           create-dmg \
             --volname "NCP Nuke" \
-            --volicon "build/assets/icon.icns" \
             --window-pos 200 120 \
             --window-size 800 400 \
             --icon-size 100 \
