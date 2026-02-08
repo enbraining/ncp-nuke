@@ -46,19 +46,19 @@ jobs:
           go-version: '1.22'
       
       - name: Build Binary
-        run: go build -o ncp-cli.exe main.go
+        run: go build -o ncp-nuke.exe main.go
       
       # WiX Toolset은 windows-latest 러너에 기본 설치되어 있음
       - name: Build MSI
         run: |
           candle build/package/windows/ncp-cli.wxs
-          light -out ncp-cli-windows-amd64.msi ncp-cli.wixobj
+          light -out ncp-nuke-windows-amd64.msi ncp-cli.wixobj
       
       - name: Upload MSI to Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: ncp-cli-windows-amd64.msi
+          files: ncp-nuke-windows-amd64.msi
 
   # 3. macOS DMG 패키징
   dmg-macos:
@@ -74,7 +74,7 @@ jobs:
           go-version: '1.22'
       
       - name: Build Binary
-        run: GOOS=darwin GOARCH=arm64 go build -o ncp-cli main.go
+        run: GOOS=darwin GOARCH=arm64 go build -o ncp-nuke main.go
       
       - name: Install create-dmg
         run: brew install create-dmg
@@ -82,17 +82,17 @@ jobs:
       - name: Create DMG
         run: |
           mkdir -p dist
-          cp ncp-cli dist/
+          cp ncp-nuke dist/
           create-dmg \
-            --volname "NCP Sub Account CLI" \
+            --volname "NCP Nuke" \
             --volicon "build/assets/icon.icns" \
             --window-pos 200 120 \
             --window-size 800 400 \
             --icon-size 100 \
-            --icon "ncp-cli" 200 190 \
-            --hide-extension "ncp-cli" \
+            --icon "ncp-nuke" 200 190 \
+            --hide-extension "ncp-nuke" \
             --app-drop-link 600 185 \
-            "ncp-cli-darwin-arm64.dmg" \
+            "ncp-nuke-darwin-arm64.dmg" \
             "dist/"
         continue-on-error: true # 아이콘이 없으면 경고가 뜰 수 있음
 
@@ -100,4 +100,4 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: ncp-cli-darwin-arm64.dmg
+          files: ncp-nuke-darwin-arm64.dmg
