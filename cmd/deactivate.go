@@ -30,6 +30,10 @@ func init() {
 }
 
 func runDeactivate(cmd *cobra.Command, args []string) error {
+	if filePath == "" {
+		return fmt.Errorf("엑셀 파일 경로가 지정되지 않았습니다. -f 또는 --file 플래그를 사용하세요")
+	}
+
 	accounts, err := excel.ReadAccounts(filePath)
 	if err != nil {
 		return fmt.Errorf("엑셀 파일 읽기 실패: %w", err)
