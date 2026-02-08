@@ -7,42 +7,44 @@ before:
     - go mod tidy
 
 builds:
-  - id: default
+  # 1. Linux & macOS Build
+  - id: unix
     env:
       - CGO_ENABLED=0
     goos:
       - linux
-      - windows
       - darwin
     goarch:
       - amd64
       - arm64
     binary: ncp-nuke
-    ignore:
-      - goos: windows
-        goarch: arm64
 
-archives:
-  - id: nix
-    builds: 
-      - default
-    formats: 
-      - tar.gz
-    name_template: >-
-      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
-    goos:
-      - linux
-      - darwin
-
+  # 2. Windows Build
   - id: windows
-    builds: 
-      - default
-    formats: 
-      - zip
-    name_template: >-
-      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    env:
+      - CGO_ENABLED=0
     goos:
       - windows
+    goarch:
+      - amd64
+    binary: ncp-nuke
+
+archives:
+  # Unix (tar.gz)
+  - id: nix
+    builds:
+      - unix
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+  # Windows (zip)
+  - id: win
+    builds:
+      - windows
+    format: zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
 
 checksum:
   name_template: 'checksums.txt'
