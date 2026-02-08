@@ -1,0 +1,46 @@
+{
+  "servers": {
+    "enabled": true,
+    "include": [],
+    "exclude": ["my-important-server", "S-1001"]
+  },
+  "block_storages": {
+    "exclude": ["BS-2002"]
+  },
+  "block_storage_snapshots": {},
+  "public_ips": {
+    "exclude": ["1.2.3.4"]
+  },
+  "nas_volumes": {
+    "exclude": []
+  },
+  "nas_volume_snapshots": {},
+  "load_balancers": {
+    "exclude": []
+  },
+  "target_groups": {},
+  "cloud_dbs": {
+    "enabled": false
+  },
+  "cloud_postgresqls": {},
+  "cloud_mongodbs": {},
+  "cloud_mariadbs": {},
+  "cloud_mysqls": {},
+  "cloud_redises": {},
+  "vpcs": {
+    "exclude": ["vpc-core-prod"]
+  },
+  "subnets": {},
+  "nat_gateways": {},
+  "vpc_peerings": {},
+  "network_acls": {},
+  "access_control_groups": {},
+  "auto_scaling_groups": {},
+  "launch_configurations": {},
+  "nks_clusters": {
+    "exclude": ["k8s-prod"]
+  },
+  "init_scripts": {},
+  "login_keys": {},
+  "placement_groups": {}
+}

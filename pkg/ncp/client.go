@@ -12,10 +12,19 @@ import (
 )
 
 const (
-	SubAccountBaseURL = "https://subaccount.apigw.ntruss.com"
-	VServerBaseURL    = "https://ncloud.apigw.ntruss.com/vserver/v2"
-	VNASBaseURL       = "https://ncloud.apigw.ntruss.com/vnas/v2"
-	VLBBaseURL        = "https://ncloud.apigw.ntruss.com/vloadbalancer/v2"
+	SubAccountBaseURL   = "https://subaccount.apigw.ntruss.com"
+	VServerBaseURL      = "https://ncloud.apigw.ntruss.com/vserver/v2"
+	VNASBaseURL         = "https://ncloud.apigw.ntruss.com/vnas/v2"
+	VLBBaseURL          = "https://ncloud.apigw.ntruss.com/vloadbalancer/v2"
+	VCloudDBBaseURL     = "https://ncloud.apigw.ntruss.com/clouddb/v2"
+	VVPCBaseURL         = "https://ncloud.apigw.ntruss.com/vpc/v2"
+	VNKSBaseURL         = "https://nks.apigw.ntruss.com/vnks/v2"
+	VAutoScalingBaseURL = "https://ncloud.apigw.ntruss.com/autoscaling/v2"
+	VMongoDBBaseURL     = "https://ncloud.apigw.ntruss.com/vmongodb/v2"
+	VPostgreSQLBaseURL  = "https://ncloud.apigw.ntruss.com/vpostgresql/v2"
+	VMariaDBBaseURL     = "https://ncloud.apigw.ntruss.com/vmariadb/v2"
+	VMySQLBaseURL       = "https://ncloud.apigw.ntruss.com/vmysql/v2"
+	VRedisBaseURL       = "https://ncloud.apigw.ntruss.com/vredis/v2"
 )
 
 // Client is the NCP API client with HMAC-SHA256 authentication.

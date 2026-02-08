@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"ncp-nuke/pkg/config"
 	"ncp-nuke/pkg/excel"
 	"ncp-nuke/pkg/ncp"
 
@@ -13,6 +14,7 @@ import (
 )
 
 var cleanup bool
+var configPath string
 
 var deactivateCmd = &cobra.Command{
 	Use:   "deactivate",
@@ -20,12 +22,22 @@ var deactivateCmd = &cobra.Command{
 	Long: `엑셀 파일에 등록된 루트 계정들의 하위 서브 계정들을 일괄로 비활성화(정지)합니다.
 
 --cleanup 옵션을 사용하면 서브 계정 비활성화 전에
-서버, 블록 스토리지, 공인 IP, NAS, 로드밸런서 등 모든 리소스를 삭제합니다.`,
+서버, 블록 스토리지, 공인 IP, NAS, 로드밸런서 등 모든 리소스를 삭제합니다.
+
+--config 옵션으로 JSON 설정 파일을 지정하면 삭제할 리소스를 필터링할 수 있습니다.
+설정 파일 예시 (JSON):
+{
+  "servers": {
+    "exclude": ["my-server-1", "S-12345"]
+  }
+}
+`,
 	RunE: runDeactivate,
 }
 
 func init() {
 	deactivateCmd.Flags().BoolVar(&cleanup, "cleanup", false, "리소스 전체 삭제 (서버, 스토리지, 공인IP, NAS, 로드밸런서)")
+	deactivateCmd.Flags().StringVar(&configPath, "config", "", "리소스 필터 설정 파일 경로 (JSON)")
 	rootCmd.AddCommand(deactivateCmd)
 }
 
@@ -113,8 +125,19 @@ func runDeactivateOnly(accounts []ncp.RootAccount) error {
 }
 
 func runDeactivateWithCleanup(accounts []ncp.RootAccount) error {
-	fmt.Printf("\n%d개 루트 계정의 모든 리소스를 삭제하고 서브 계정을 비활성화합니다.\n", len(accounts))
-	fmt.Println("삭제 대상: 서버, 블록 스토리지, 공인 IP, NAS 볼륨, 로드밸런서")
+	// Load config if provided
+	var cfg *config.Config
+	if configPath != "" {
+		var err error
+		cfg, err = config.LoadConfig(configPath)
+		if err != nil {
+			return fmt.Errorf("설정 파일 로드 실패: %w", err)
+		}
+		fmt.Printf("설정 파일 로드됨: %s\n", configPath)
+	}
+
+	fmt.Printf("\n%d개 루트 계정의 모든 서비스를 해지하고 리소스를 삭제한 뒤 서브 계정을 비활성화합니다.\n", len(accounts))
+	fmt.Println("해지/삭제 대상: 서버, 블록 스토리지, 공인 IP, NAS 볼륨, 로드밸런서, Cloud DB, VPC 등")
 	fmt.Println()
 
 	// Phase 1: 리소스 조회
@@ -135,12 +158,36 @@ func runDeactivateWithCleanup(accounts []ncp.RootAccount) error {
 			fmt.Fprintf(os.Stderr, "  경고: %v\n", e)
 		}
 
-		fmt.Printf("  서버: %d대, 블록스토리지: %d개, 공인IP: %d개, NAS: %d개, 로드밸런서: %d개\n",
+		// Apply filter if config exists
+		if cfg != nil {
+			applyConfigFilter(summary, cfg)
+		}
+
+		dbCount := len(summary.CloudDBs) + len(summary.CloudPostgresqls) + len(summary.CloudMongoDBs) +
+			len(summary.CloudMariaDBs) + len(summary.CloudMySQLs) + len(summary.CloudRedises)
+		fmt.Printf("  서버: %d대, 블록스토리지: %d개(스냅샷 %d), 공인IP: %d개, NAS: %d개(스냅샷 %d), LB: %d개, TG: %d개\n"+
+			"  CloudDB(All): %d개, VPC: %d개, Subnet: %d개, NAT: %d개, Peering: %d개, NACL: %d개\n"+
+			"  RouteTable: %d개, ACG: %d개, ASG: %d개, LC: %d개, NKS: %d개\n"+
+			"  InitScript: %d개, LoginKey: %d개, PlacementGroup: %d개\n",
 			len(summary.Servers),
-			len(summary.BlockStorages),
+			len(summary.BlockStorages), len(summary.BlockStorageSnapshots),
 			len(summary.PublicIps),
-			len(summary.NasVolumes),
-			len(summary.LoadBalancers),
+			len(summary.NasVolumes), len(summary.NasVolumeSnapshots),
+			len(summary.LoadBalancers), len(summary.TargetGroups),
+			dbCount,
+			len(summary.Vpcs),
+			len(summary.Subnets),
+			len(summary.NatGateways),
+			len(summary.VpcPeerings),
+			len(summary.NetworkAcls),
+			len(summary.RouteTables),
+			len(summary.AccessControlGroups),
+			len(summary.AutoScalingGroups),
+			len(summary.LaunchConfigurations),
+			len(summary.NksClusters),
+			len(summary.InitScripts),
+			len(summary.LoginKeys),
+			len(summary.PlacementGroups),
 		)
 
 		targets = append(targets, accountResources{
@@ -159,14 +206,14 @@ func runDeactivateWithCleanup(accounts []ncp.RootAccount) error {
 	if totalResources == 0 {
 		fmt.Println("\n삭제할 리소스가 없습니다.")
 	} else {
-		fmt.Printf("\n총 %d개 리소스를 삭제합니다.\n", totalResources)
+		fmt.Printf("\n총 %d개 서비스 해지 및 리소스를 삭제합니다.\n", totalResources)
 		fmt.Println("이 작업은 되돌릴 수 없습니다!")
 		if !confirmPrompt() {
 			return nil
 		}
 
 		// Phase 2: 리소스 삭제
-		fmt.Println("\n=== 리소스 삭제 중 ===")
+		fmt.Println("\n=== 서비스 해지 및 리소스 삭제 중 ===")
 		for _, t := range targets {
 			if t.summary.TotalCount() == 0 {
 				continue
@@ -174,7 +221,7 @@ func runDeactivateWithCleanup(accounts []ncp.RootAccount) error {
 			fmt.Printf("\n[루트 계정: %s]\n", t.account.AccountName)
 			logFn := func(msg string) { fmt.Println(msg) }
 			s, f := t.client.CleanupAllResources(t.summary, logFn)
-			fmt.Printf("  리소스 삭제 결과: 성공 %d, 실패 %d\n", s, f)
+			fmt.Printf("  서비스 해지 및 리소스 삭제 결과: 성공 %d, 실패 %d\n", s, f)
 		}
 	}
 
@@ -243,4 +290,214 @@ func confirmPrompt() bool {
 		return false
 	}
 	return true
+}
+
+func applyConfigFilter(summary *ncp.ResourceSummary, cfg *config.Config) {
+	var servers []ncp.ServerInstance
+	for _, s := range summary.Servers {
+		if cfg.Servers.Match(s.ServerName, s.ServerInstanceNo) {
+			servers = append(servers, s)
+		}
+	}
+	summary.Servers = servers
+
+	var storages []ncp.BlockStorageInstance
+	for _, s := range summary.BlockStorages {
+		if cfg.BlockStorages.Match(s.BlockStorageName, s.BlockStorageInstanceNo) {
+			storages = append(storages, s)
+		}
+	}
+	summary.BlockStorages = storages
+
+	var bsSnaps []ncp.BlockStorageSnapshotInstance
+	for _, s := range summary.BlockStorageSnapshots {
+		if cfg.BlockStorageSnapshots.Match(s.BlockStorageSnapshotName, s.BlockStorageSnapshotInstanceNo) {
+			bsSnaps = append(bsSnaps, s)
+		}
+	}
+	summary.BlockStorageSnapshots = bsSnaps
+
+	var ips []ncp.PublicIpInstance
+	for _, s := range summary.PublicIps {
+		if cfg.PublicIps.Match(s.PublicIp, s.PublicIpInstanceNo) {
+			ips = append(ips, s)
+		}
+	}
+	summary.PublicIps = ips
+
+	var vols []ncp.NasVolumeInstance
+	for _, s := range summary.NasVolumes {
+		if cfg.NasVolumes.Match(s.VolumeName, s.NasVolumeInstanceNo) {
+			vols = append(vols, s)
+		}
+	}
+	summary.NasVolumes = vols
+
+	var nasSnaps []ncp.NasVolumeSnapshot
+	for _, s := range summary.NasVolumeSnapshots {
+		if cfg.NasVolumeSnapshots.Match(s.NasVolumeSnapshotName, s.NasVolumeSnapshotInstanceNo) {
+			nasSnaps = append(nasSnaps, s)
+		}
+	}
+	summary.NasVolumeSnapshots = nasSnaps
+
+	var lbs []ncp.LoadBalancerInstance
+	for _, s := range summary.LoadBalancers {
+		if cfg.LoadBalancers.Match(s.LoadBalancerName, s.LoadBalancerInstanceNo) {
+			lbs = append(lbs, s)
+		}
+	}
+	summary.LoadBalancers = lbs
+
+	var tgs []ncp.TargetGroup
+	for _, s := range summary.TargetGroups {
+		if cfg.TargetGroups.Match(s.TargetGroupName, s.TargetGroupNo) {
+			tgs = append(tgs, s)
+		}
+	}
+	summary.TargetGroups = tgs
+
+	var dbs []ncp.CloudDBInstance
+	for _, s := range summary.CloudDBs {
+		if cfg.CloudDBs.Match(s.CloudDBServiceName, s.CloudDBInstanceNo) {
+			dbs = append(dbs, s)
+		}
+	}
+	summary.CloudDBs = dbs
+
+	var pgs []ncp.CloudPostgresqlInstance
+	for _, s := range summary.CloudPostgresqls {
+		if cfg.CloudPostgresqls.Match(s.CloudPostgresqlServiceName, s.CloudPostgresqlInstanceNo) {
+			pgs = append(pgs, s)
+		}
+	}
+	summary.CloudPostgresqls = pgs
+
+	var mgs []ncp.CloudMongoDbInstance
+	for _, s := range summary.CloudMongoDBs {
+		if cfg.CloudMongoDBs.Match(s.CloudMongoDbServiceName, s.CloudMongoDbInstanceNo) {
+			mgs = append(mgs, s)
+		}
+	}
+	summary.CloudMongoDBs = mgs
+
+	var mdbs []ncp.CloudMariaDbInstance
+	for _, s := range summary.CloudMariaDBs {
+		if cfg.CloudMariaDBs.Match(s.CloudMariaDbServiceName, s.CloudMariaDbInstanceNo) {
+			mdbs = append(mdbs, s)
+		}
+	}
+	summary.CloudMariaDBs = mdbs
+
+	var mysqls []ncp.CloudMysqlInstance
+	for _, s := range summary.CloudMySQLs {
+		if cfg.CloudMySQLs.Match(s.CloudMysqlServiceName, s.CloudMysqlInstanceNo) {
+			mysqls = append(mysqls, s)
+		}
+	}
+	summary.CloudMySQLs = mysqls
+
+	var redises []ncp.CloudRedisInstance
+	for _, s := range summary.CloudRedises {
+		if cfg.CloudRedises.Match(s.CloudRedisServiceName, s.CloudRedisInstanceNo) {
+			redises = append(redises, s)
+		}
+	}
+	summary.CloudRedises = redises
+
+	var vpcs []ncp.Vpc
+	for _, s := range summary.Vpcs {
+		if cfg.Vpcs.Match(s.VpcName, s.VpcNo) {
+			vpcs = append(vpcs, s)
+		}
+	}
+	summary.Vpcs = vpcs
+
+	var subnets []ncp.Subnet
+	for _, s := range summary.Subnets {
+		if cfg.Subnets.Match(s.SubnetName, s.SubnetNo) {
+			subnets = append(subnets, s)
+		}
+	}
+	summary.Subnets = subnets
+
+	var nats []ncp.NatGatewayInstance
+	for _, s := range summary.NatGateways {
+		if cfg.NatGateways.Match(s.NatGatewayName, s.NatGatewayInstanceNo) {
+			nats = append(nats, s)
+		}
+	}
+	summary.NatGateways = nats
+
+	var peerings []ncp.VpcPeeringInstance
+	for _, s := range summary.VpcPeerings {
+		if cfg.VpcPeerings.Match(s.VpcPeeringName, s.VpcPeeringInstanceNo) {
+			peerings = append(peerings, s)
+		}
+	}
+	summary.VpcPeerings = peerings
+
+	var nacls []ncp.NetworkAcl
+	for _, s := range summary.NetworkAcls {
+		if cfg.NetworkAcls.Match(s.NetworkAclName, s.NetworkAclNo) {
+			nacls = append(nacls, s)
+		}
+	}
+	summary.NetworkAcls = nacls
+
+	var acgs []ncp.AccessControlGroup
+	for _, s := range summary.AccessControlGroups {
+		if cfg.AccessControlGroups.Match(s.AccessControlGroupName, s.AccessControlGroupNo) {
+			acgs = append(acgs, s)
+		}
+	}
+	summary.AccessControlGroups = acgs
+
+	var asgs []ncp.AutoScalingGroup
+	for _, s := range summary.AutoScalingGroups {
+		if cfg.AutoScalingGroups.Match(s.AutoScalingGroupName, s.AutoScalingGroupNo) {
+			asgs = append(asgs, s)
+		}
+	}
+	summary.AutoScalingGroups = asgs
+
+	var lcs []ncp.LaunchConfiguration
+	for _, s := range summary.LaunchConfigurations {
+		if cfg.LaunchConfigurations.Match(s.LaunchConfigurationName, s.LaunchConfigurationNo) {
+			lcs = append(lcs, s)
+		}
+	}
+	summary.LaunchConfigurations = lcs
+
+	var clusters []ncp.NksCluster
+	for _, s := range summary.NksClusters {
+		if cfg.NksClusters.Match(s.Name, s.Uuid) {
+			clusters = append(clusters, s)
+		}
+	}
+	summary.NksClusters = clusters
+
+	var scripts []ncp.InitScript
+	for _, s := range summary.InitScripts {
+		if cfg.InitScripts.Match(s.InitScriptName, s.InitScriptNo) {
+			scripts = append(scripts, s)
+		}
+	}
+	summary.InitScripts = scripts
+
+	var keys []ncp.LoginKey
+	for _, s := range summary.LoginKeys {
+		if cfg.LoginKeys.Match(s.KeyName, s.KeyName) {
+			keys = append(keys, s)
+		}
+	}
+	summary.LoginKeys = keys
+
+	var placementGroups []ncp.PlacementGroup
+	for _, s := range summary.PlacementGroups {
+		if cfg.PlacementGroups.Match(s.PlacementGroupName, s.PlacementGroupNo) {
+			placementGroups = append(placementGroups, s)
+		}
+	}
+	summary.PlacementGroups = placementGroups
 }
