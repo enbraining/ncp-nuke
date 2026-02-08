@@ -30,5 +30,4 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&filePath, "file", "f", "", "루트 계정 목록 엑셀 파일 경로 (필수)")
 	rootCmd.PersistentFlags().StringVarP(&accountFilter, "account", "a", "", "특정 루트 계정만 대상 (AccountName 기준)")
-	rootCmd.MarkPersistentFlagRequired("file")
 }
