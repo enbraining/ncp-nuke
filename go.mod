@@ -6,10 +6,8 @@ require (
 	github.com/charmbracelet/bubbles v0.18.0
 	github.com/charmbracelet/bubbletea v0.26.4
 	github.com/charmbracelet/lipgloss v0.11.0
-	github.com/olekukonko/tablewriter v0.0.5
 	github.com/spf13/cobra v1.8.1
 	github.com/xuri/excelize/v2 v2.9.0
-	golang.org/x/term v0.27.0
 )
 
 require (
