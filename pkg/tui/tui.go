@@ -20,6 +20,8 @@ type sessionState int
 
 const (
 	stateSelectAccounts sessionState = iota
+	stateSelectAction
+	statePasswordInput
 	stateConfirm
 	stateTypingConfirm
 	stateRunning
@@ -36,9 +38,13 @@ type model struct {
 	table          table.Model
 	viewport       viewport.Model
 	confirmInput   textinput.Model
+	passwordInput  textinput.Model
 	confirmErr     bool
 	accounts       []ncp.RootAccount
-	selected       map[int]bool // Index of selected accounts in `accounts`
+	selected       map[int]bool
+	action         string // "activate" or "deactivate"
+	actionCursor   int
+	globalPassword string
 	cleanup        bool
 	cfg            *config.Config
 	logs           *strings.Builder
@@ -47,10 +53,24 @@ type model struct {
 	windowHeight   int
 }
 
-func Start(filePath, configPath string) error {
+func Start(filePath, configPath, accountFilter string) error {
 	accounts, err := excel.ReadAccounts(filePath)
 	if err != nil {
 		return err
+	}
+
+	// Apply account filter
+	if accountFilter != "" {
+		var filtered []ncp.RootAccount
+		for _, a := range accounts {
+			if a.AccountName == accountFilter {
+				filtered = append(filtered, a)
+			}
+		}
+		accounts = filtered
+	}
+	if len(accounts) == 0 {
+		return fmt.Errorf("대상 계정이 없습니다")
 	}
 
 	var cfg *config.Config
@@ -106,16 +126,24 @@ func initialModel(accounts []ncp.RootAccount, cfg *config.Config) model {
 		BorderForeground(lipgloss.Color("62")).
 		PaddingRight(2)
 
-	ti := textinput.New()
-	ti.Placeholder = "REAL DELETE"
-	ti.CharLimit = 20
-	ti.Width = 30
+	ci := textinput.New()
+	ci.Placeholder = "REAL DELETE"
+	ci.CharLimit = 20
+	ci.Width = 30
+
+	pi := textinput.New()
+	pi.Placeholder = "비밀번호 입력 (빈 값이면 자동 생성)"
+	pi.CharLimit = 100
+	pi.Width = 50
+	pi.EchoMode = textinput.EchoPassword
+	pi.EchoCharacter = '*'
 
 	return model{
 		state:        stateSelectAccounts,
 		table:        t,
 		viewport:     vp,
-		confirmInput: ti,
+		confirmInput: ci,
+		passwordInput: pi,
 		accounts:     accounts,
 		selected:     make(map[int]bool),
 		cfg:          cfg,
@@ -131,7 +159,6 @@ func (m model) Init() tea.Cmd {
 type logMsg string
 type doneMsg struct{}
 
-// Command to wait for next log
 func waitForLog(sub <-chan string) tea.Cmd {
 	return func() tea.Msg {
 		msg, ok := <-sub
@@ -151,7 +178,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "q":
-			if m.state != stateRunning {
+			if m.state != stateRunning && m.state != statePasswordInput && m.state != stateTypingConfirm {
 				return m, tea.Quit
 			}
 		}
@@ -168,14 +195,64 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.table.SetRows(updateRows(m.accounts, m.selected))
 			} else if msg.String() == "enter" {
 				if len(m.selected) > 0 {
+					m.state = stateSelectAction
+					m.actionCursor = 0
+				}
+			}
+
+		case stateSelectAction:
+			switch msg.String() {
+			case "up", "k":
+				if m.actionCursor > 0 {
+					m.actionCursor--
+				}
+			case "down", "j":
+				if m.actionCursor < 1 {
+					m.actionCursor++
+				}
+			case "enter":
+				if m.actionCursor == 0 {
+					m.action = "activate"
+					// Check if any selected account has no password in excel
+					needsPassword := false
+					for i := range m.selected {
+						if m.accounts[i].Password == "" {
+							needsPassword = true
+							break
+						}
+					}
+					if needsPassword {
+						m.state = statePasswordInput
+						m.passwordInput.Focus()
+						return m, m.passwordInput.Cursor.BlinkCmd()
+					}
+					m.state = stateConfirm
+				} else {
+					m.action = "deactivate"
 					m.state = stateConfirm
 				}
+			case "b", "B", "esc":
+				m.state = stateSelectAccounts
+			}
+
+		case statePasswordInput:
+			switch msg.String() {
+			case "enter":
+				m.globalPassword = m.passwordInput.Value()
+				m.state = stateConfirm
+			case "esc":
+				m.state = stateSelectAction
+				m.passwordInput.Blur()
+				m.passwordInput.Reset()
+			default:
+				m.passwordInput, cmd = m.passwordInput.Update(msg)
+				return m, cmd
 			}
 
 		case stateConfirm:
 			switch msg.String() {
 			case "y", "Y":
-				if m.cleanup {
+				if m.action == "deactivate" && m.cleanup {
 					m.state = stateTypingConfirm
 					m.confirmInput.Reset()
 					m.confirmInput.Focus()
@@ -184,7 +261,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.state = stateRunning
 				go func() {
-					processSelectedAccounts(m.accounts, m.selected, m.cleanup, m.cfg, func(s string) {
+					processSelectedAccounts(m.accounts, m.selected, m.action, m.globalPassword, m.cleanup, m.cfg, func(s string) {
 						m.logChan <- s
 					})
 					close(m.logChan)
@@ -192,9 +269,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, waitForLog(m.logChan)
 
 			case "c", "C":
-				m.cleanup = !m.cleanup
+				if m.action == "deactivate" {
+					m.cleanup = !m.cleanup
+				}
 			case "b", "B", "esc":
-				m.state = stateSelectAccounts
+				m.state = stateSelectAction
 			}
 
 		case stateTypingConfirm:
@@ -203,7 +282,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.confirmInput.Value() == "REAL DELETE" {
 					m.state = stateRunning
 					go func() {
-						processSelectedAccounts(m.accounts, m.selected, m.cleanup, m.cfg, func(s string) {
+						processSelectedAccounts(m.accounts, m.selected, m.action, m.globalPassword, m.cleanup, m.cfg, func(s string) {
 							m.logChan <- s
 						})
 						close(m.logChan)
@@ -227,13 +306,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.windowHeight = msg.Height
 		m.table.SetWidth(msg.Width - 10)
 		m.viewport.Width = msg.Width - 4
-		m.viewport.Height = msg.Height - 10 // Leave room for title
+		m.viewport.Height = msg.Height - 10
 
 	case logMsg:
 		m.logs.WriteString(string(msg) + "\n")
 		m.viewport.SetContent(m.logs.String())
 		m.viewport.GotoBottom()
-		return m, waitForLog(m.logChan) // Wait for next
+		return m, waitForLog(m.logChan)
 
 	case doneMsg:
 		m.state = stateDone
@@ -247,6 +326,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table, cmd = m.table.Update(msg)
 	case stateTypingConfirm:
 		m.confirmInput, cmd = m.confirmInput.Update(msg)
+	case statePasswordInput:
+		m.passwordInput, cmd = m.passwordInput.Update(msg)
 	case stateRunning, stateDone:
 		m.viewport, cmd = m.viewport.Update(msg)
 	}
@@ -282,10 +363,45 @@ func (m model) View() string {
 			),
 		)
 
+	case stateSelectAction:
+		actions := []string{"활성화 + 비밀번호 초기화", "비활성화"}
+		var items string
+		for i, a := range actions {
+			cursor := "  "
+			if i == m.actionCursor {
+				cursor = "> "
+			}
+			items += fmt.Sprintf("%s%s\n", cursor, a)
+		}
+
+		content := fmt.Sprintf(`
+%s
+
+선택된 계정: %d개
+
+%s
+(위/아래: 선택, Enter: 다음, b: 뒤로, q: 종료)
+`, titleStyle.Render("수행할 작업 선택"), len(m.selected), items)
+		return baseStyle.Render(content)
+
+	case statePasswordInput:
+		content := fmt.Sprintf(`
+%s
+
+엑셀에 비밀번호가 없는 계정이 있습니다.
+공통으로 적용할 비밀번호를 입력하세요.
+(빈 값으로 Enter 시 자동 생성)
+
+%s
+
+(Enter: 다음, Esc: 뒤로)
+`, titleStyle.Render("비밀번호 입력"), m.passwordInput.View())
+		return baseStyle.Render(content)
+
 	case stateConfirm:
-		cleanupStatus := "[ ] Cleanup (서비스 해지 및 리소스 삭제)"
-		if m.cleanup {
-			cleanupStatus = "[x] Cleanup (서비스 해지 및 리소스 삭제)"
+		actionLabel := "활성화 + 비밀번호 초기화"
+		if m.action == "deactivate" {
+			actionLabel = "비활성화"
 		}
 
 		targets := ""
@@ -300,17 +416,25 @@ func (m model) View() string {
 			targets += fmt.Sprintf("... 외 %d개\n", count-5)
 		}
 
+		options := ""
+		if m.action == "deactivate" {
+			cleanupStatus := "[ ] Cleanup (서비스 해지 및 리소스 삭제)"
+			if m.cleanup {
+				cleanupStatus = "[x] Cleanup (서비스 해지 및 리소스 삭제)"
+			}
+			options = fmt.Sprintf("\n옵션:\n%s (Toggle: 'c')\n", cleanupStatus)
+		}
+
 		content := fmt.Sprintf(`
 %s
 
+작업: %s
+
 선택된 계정:
 %s
-
-옵션:
-%s (Toggle: 'c')
-
+%s
 진행하시겠습니까? (y: 시작, b: 뒤로, q: 종료)
-`, titleStyle.Render("작업 확인"), targets, cleanupStatus)
+`, titleStyle.Render("작업 확인"), actionLabel, targets, options)
 		return baseStyle.Render(content)
 
 	case stateTypingConfirm:
@@ -345,8 +469,7 @@ func (m model) View() string {
 	return ""
 }
 
-// Logic copied/adapted from cmd/deactivate.go for TUI usage
-func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, cleanup bool, cfg *config.Config, logFn func(string)) {
+func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, action, globalPassword string, cleanup bool, cfg *config.Config, logFn func(string)) {
 	logFn("작업 시작...")
 
 	totalSuccess, totalFail := 0, 0
@@ -359,8 +482,8 @@ func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, 
 		logFn(fmt.Sprintf("\n[루트 계정: %s]", account.AccountName))
 		client := ncp.NewClient(account.AccessKey, account.SecretKey)
 
-		// 1. Cleanup Phase
-		if cleanup {
+		// Cleanup phase (deactivate + cleanup only)
+		if action == "deactivate" && cleanup {
 			logFn("  리소스 조회 중...")
 			summary, errs := client.ListAllResources()
 			for _, e := range errs {
@@ -368,7 +491,6 @@ func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, 
 			}
 
 			if cfg != nil {
-				// Filter Logic Duplicated from applyConfigFilter (below) for safety
 				applyFilter(summary, cfg)
 			}
 
@@ -383,7 +505,7 @@ func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, 
 			}
 		}
 
-		// 2. Deactivate Phase
+		// Sub account operation
 		logFn("  서브 계정 조회 중...")
 		subAccounts, err := client.ListSubAccounts()
 		if err != nil {
@@ -394,7 +516,7 @@ func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, 
 		var targets []ncp.SubAccount
 		if account.IamUsername != "" {
 			for _, sa := range subAccounts {
-				if sa.LoginId == account.IamUsername {
+				if strings.EqualFold(sa.LoginId, account.IamUsername) {
 					targets = append(targets, sa)
 					break
 				}
@@ -404,26 +526,62 @@ func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, 
 		}
 
 		if len(targets) == 0 {
-			logFn("    대상 서브 계정 없음")
+			if account.IamUsername != "" {
+				var ids []string
+				for _, sa := range subAccounts {
+					ids = append(ids, sa.LoginId)
+				}
+				logFn(fmt.Sprintf("    [오류] 지정된 IAM 사용자(%s)를 찾을 수 없습니다. 존재하는 LoginId: %v", account.IamUsername, ids))
+			} else {
+				logFn("    대상 서브 계정 없음")
+			}
 			continue
 		}
 
-		for _, sa := range targets {
-			if !sa.Active {
-				logFn(fmt.Sprintf("    [건너뜀] %s: 이미 비활성", sa.LoginId))
-				continue
+		switch action {
+		case "activate":
+			for _, sa := range targets {
+				effectivePassword := account.Password
+				if effectivePassword == "" {
+					effectivePassword = globalPassword
+				}
+				generatedPw, err := client.ActivateSubAccount(sa, effectivePassword)
+				if err != nil {
+					logFn(fmt.Sprintf("    [실패] %s (%s): %v", sa.LoginId, sa.Name, err))
+					totalFail++
+				} else {
+					if generatedPw != "" {
+						logFn(fmt.Sprintf("    [성공] %s (%s): 활성화 + 비밀번호 초기화 완료 (생성된 비밀번호: %s)", sa.LoginId, sa.Name, generatedPw))
+					} else {
+						logFn(fmt.Sprintf("    [성공] %s (%s): 활성화 + 비밀번호 초기화 완료", sa.LoginId, sa.Name))
+					}
+					totalSuccess++
+				}
 			}
-			if err := client.DeactivateSubAccount(sa.SubAccountId); err != nil {
-				logFn(fmt.Sprintf("    [실패] %s 비활성화: %v", sa.LoginId, err))
-				totalFail++
-			} else {
-				logFn(fmt.Sprintf("    [성공] %s 비활성화 완료", sa.LoginId))
-				totalSuccess++
+
+		case "deactivate":
+			for _, sa := range targets {
+				if !sa.Active {
+					logFn(fmt.Sprintf("    [건너뜀] %s: 이미 비활성", sa.LoginId))
+					totalSuccess++
+					continue
+				}
+				if err := client.DeactivateSubAccount(sa); err != nil {
+					logFn(fmt.Sprintf("    [실패] %s 비활성화: %v", sa.LoginId, err))
+					totalFail++
+				} else {
+					logFn(fmt.Sprintf("    [성공] %s 비활성화 완료", sa.LoginId))
+					totalSuccess++
+				}
 			}
 		}
 	}
 
-	logFn(fmt.Sprintf("\n최종 결과: 서브계정 비활성화 성공 %d, 실패 %d", totalSuccess, totalFail))
+	actionLabel := "활성화"
+	if action == "deactivate" {
+		actionLabel = "비활성화"
+	}
+	logFn(fmt.Sprintf("\n최종 결과: 서브계정 %s 성공 %d, 실패 %d", actionLabel, totalSuccess, totalFail))
 }
 
 func applyFilter(summary *ncp.ResourceSummary, cfg *config.Config) {
