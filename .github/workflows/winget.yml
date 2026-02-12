@@ -18,4 +18,4 @@ jobs:
           installers-regex: '\.msi$'
           
           # GitHub Token (Personal Access Token 필요)
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_TOKEN }}
