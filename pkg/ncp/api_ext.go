@@ -629,10 +629,16 @@ func (c *Client) ListLoginKeys() ([]LoginKey, error) {
 }
 
 func (c *Client) DeleteLoginKey(keyName string) error {
+	return c.DeleteLoginKeys([]string{keyName})
+}
+
+func (c *Client) DeleteLoginKeys(keyNames []string) error {
 	params := url.Values{}
 	params.Set("responseFormatType", "json")
-	params.Set("keyName", keyName)
-	path := "/deleteLoginKey?" + params.Encode()
+	for i, name := range keyNames {
+		params.Set(fmt.Sprintf("keyNameList.%d", i+1), name)
+	}
+	path := "/deleteLoginKeys?" + params.Encode()
 	body, status, err := c.doRequestWithBase(VServerBaseURL, "GET", path, nil)
 	if err != nil {
 		return err
