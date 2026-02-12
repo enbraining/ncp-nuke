@@ -324,8 +324,16 @@ func (c *Client) ListAllResources() (*ResourceSummary, []error) {
 }
 
 // CleanupAllResources deletes all resources for a root account.
-// Order: NKS -> ASG -> LaunchConfig -> All DBs -> LB -> TargetGroup -> Server -> BS Snapshot -> BS -> NAS Snapshot -> NAS
-//        -> NAT -> VPC Peering -> Routes -> IP -> ACG -> Network ACL -> Subnet -> VPC -> InitScript -> LoginKey -> PlacementGroup
+// 올바른 의존성 순서 (하위 리소스 -> 상위 리소스):
+// 1. Application Layer: NKS -> ASG -> LaunchConfig
+// 2. Data Layer: All DBs
+// 3. Network Services: LB -> TargetGroup
+// 4. Compute: Server -> BS Snapshot -> BS -> NAS Snapshot -> NAS
+// 5. Network Infrastructure (순서 중요!):
+//    - Routes (의존성 제거) -> VPC Peering -> NAT Gateway
+//    - Public IP -> ACG -> Network ACL
+//    - Subnet (완전 삭제 대기) -> VPC
+// 6. Server Resources: InitScript -> LoginKey -> PlacementGroup
 func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string)) (int, int) {
 	success, fail := 0, 0
 
@@ -479,8 +487,8 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 			if err := c.StopServers(runningNos); err != nil {
 				logFn(fmt.Sprintf("    [실패] 서버 정지: %v", err))
 			} else {
-				logFn("    서버 정지 요청 완료, 30초 대기...")
-				time.Sleep(30 * time.Second)
+				logFn("    서버 정지 요청 완료, 정지 완료 대기 중...")
+				c.waitForServersStopped(runningNos, logFn)
 			}
 		}
 
@@ -495,8 +503,8 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 		} else {
 			logFn("    [성공] 서버 반납 요청 완료")
 			success += len(allNos)
-			logFn("    서버 반납 대기 중 (30초)...")
-			time.Sleep(30 * time.Second)
+			logFn("    서버 반납 완료 대기 중...")
+			c.waitForServersTerminated(summary.Servers, logFn)
 		}
 	}
 
@@ -559,23 +567,29 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 		}
 	}
 
-	// 12. NAT Gateways
-	for _, nat := range summary.NatGateways {
-		logFn(fmt.Sprintf("  NAT Gateway 삭제: %s (%s)", nat.NatGatewayName, nat.NatGatewayInstanceNo))
-		if err := c.DeleteNatGateway(nat.NatGatewayInstanceNo); err != nil {
-			logFn(fmt.Sprintf("    [실패] %v", err))
-			fail++
-		} else {
-			logFn("    [성공]")
-			success++
+	// 12. Route Tables (Clean up NAT/Peering routes FIRST - 의존성 제거)
+	if len(summary.RouteTables) > 0 {
+		logFn("  Route Table 정리 (NAT/Peering 경로 삭제)...")
+		routesToDelete := 0
+		for _, rt := range summary.RouteTables {
+			for _, route := range rt.RouteList {
+				if route.TargetTypeCode.Code == "NATGW" || route.TargetTypeCode.Code == "VPCPEERING" {
+					routesToDelete++
+					logFn(fmt.Sprintf("    경로 삭제: Table %s -> %s (Target: %s)", rt.RouteTableName, route.DestinationCidrBlock, route.TargetTypeCode.Code))
+					if err := c.RemoveRoute(rt.RouteTableNo, route); err != nil {
+						logFn(fmt.Sprintf("      [실패] %v", err))
+					} else {
+						logFn("      [성공]")
+					}
+				}
+			}
+		}
+		if routesToDelete == 0 {
+			logFn("    삭제할 NAT/Peering 경로 없음")
 		}
 	}
-	if len(summary.NatGateways) > 0 {
-		logFn("  NAT Gateway 삭제 대기 (20초)...")
-		time.Sleep(20 * time.Second)
-	}
 
-	// 13. VPC Peering
+	// 13. VPC Peering (Route 삭제 후)
 	for _, p := range summary.VpcPeerings {
 		logFn(fmt.Sprintf("  VPC Peering 삭제: %s (%s)", p.VpcPeeringName, p.VpcPeeringInstanceNo))
 		if err := c.DeleteVpcPeeringInstance(p.VpcPeeringInstanceNo); err != nil {
@@ -587,19 +601,20 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 		}
 	}
 
-	// 14. Route Tables (Clean up NAT/Peering routes)
-	logFn("  Route Table 정리 (NAT/Peering 경로 삭제)...")
-	for _, rt := range summary.RouteTables {
-		for _, route := range rt.RouteList {
-			if route.TargetTypeCode.Code == "NATGW" || route.TargetTypeCode.Code == "VPCPEERING" {
-				logFn(fmt.Sprintf("    경로 삭제: Table %s -> %s", rt.RouteTableName, route.DestinationCidrBlock))
-				if err := c.RemoveRoute(rt.RouteTableNo, route); err != nil {
-					logFn(fmt.Sprintf("      [실패] %v", err))
-				} else {
-					logFn("      [성공]")
-				}
-			}
+	// 14. NAT Gateways (Route 삭제 후)
+	for _, nat := range summary.NatGateways {
+		logFn(fmt.Sprintf("  NAT Gateway 삭제: %s (%s)", nat.NatGatewayName, nat.NatGatewayInstanceNo))
+		if err := c.DeleteNatGateway(nat.NatGatewayInstanceNo); err != nil {
+			logFn(fmt.Sprintf("    [실패] %v", err))
+			fail++
+		} else {
+			logFn("    [성공]")
+			success++
 		}
+	}
+	if len(summary.NatGateways) > 0 {
+		logFn("  NAT Gateway 삭제 완료 대기 중...")
+		c.waitForNatGatewaysDeletion(summary.NatGateways, logFn)
 	}
 
 	// 15. Release Public IPs
@@ -668,15 +683,42 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 		}
 	}
 
-	// 19. VPCs
+	// 18-1. Subnet 삭제 완료 대기 (VPC 삭제 전 필수)
+	if len(summary.Subnets) > 0 {
+		logFn("  Subnet 삭제 완료 대기 중...")
+		c.waitForSubnetsDeletion(summary.Subnets, logFn)
+	}
+
+	// 19. VPCs (Subnet이 모두 삭제된 후에만 가능)
 	for _, vpc := range summary.Vpcs {
 		logFn(fmt.Sprintf("  VPC 삭제: %s (%s)", vpc.VpcName, vpc.VpcNo))
-		if err := c.DeleteVpc(vpc.VpcNo); err != nil {
-			logFn(fmt.Sprintf("    [실패] %v", err))
+
+		// 재시도 로직: Subnet 삭제가 완료되지 않았을 수 있음
+		maxRetries := 3
+		var lastErr error
+
+		for retry := 0; retry < maxRetries; retry++ {
+			if retry > 0 {
+				logFn(fmt.Sprintf("    재시도 %d/%d...", retry+1, maxRetries))
+				time.Sleep(10 * time.Second)
+			}
+
+			if err := c.DeleteVpc(vpc.VpcNo); err != nil {
+				lastErr = err
+				if retry < maxRetries-1 {
+					logFn(fmt.Sprintf("    [실패] %v (재시도 예정)", err))
+				}
+			} else {
+				logFn("    [성공]")
+				success++
+				lastErr = nil
+				break
+			}
+		}
+
+		if lastErr != nil {
+			logFn(fmt.Sprintf("    [실패] %v", lastErr))
 			fail++
-		} else {
-			logFn("    [성공]")
-			success++
 		}
 	}
 
@@ -721,6 +763,154 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 	}
 
 	return success, fail
+}
+
+func (c *Client) waitForNatGatewaysDeletion(natGateways []NatGatewayInstance, logFn func(string)) {
+	maxWait := 5 * time.Minute
+	pollInterval := 10 * time.Second
+	deadline := time.Now().Add(maxWait)
+
+	targetNos := make(map[string]bool)
+	for _, nat := range natGateways {
+		targetNos[nat.NatGatewayInstanceNo] = true
+	}
+
+	for time.Now().Before(deadline) {
+		remaining, err := c.ListNatGateways()
+		if err != nil {
+			logFn(fmt.Sprintf("    [경고] NAT Gateway 조회 실패: %v, 재시도...", err))
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		stillExists := 0
+		for _, nat := range remaining {
+			if targetNos[nat.NatGatewayInstanceNo] {
+				stillExists++
+			}
+		}
+
+		if stillExists == 0 {
+			logFn("    NAT Gateway 삭제 완료 확인")
+			return
+		}
+
+		logFn(fmt.Sprintf("    아직 %d개 NAT Gateway 삭제 중... (%d초 후 재확인)", stillExists, int(pollInterval.Seconds())))
+		time.Sleep(pollInterval)
+	}
+
+	logFn("    [경고] NAT Gateway 삭제 대기 시간 초과")
+}
+
+func (c *Client) waitForSubnetsDeletion(subnets []Subnet, logFn func(string)) {
+	maxWait := 5 * time.Minute
+	pollInterval := 10 * time.Second
+	deadline := time.Now().Add(maxWait)
+
+	targetNos := make(map[string]bool)
+	for _, subnet := range subnets {
+		targetNos[subnet.SubnetNo] = true
+	}
+
+	for time.Now().Before(deadline) {
+		remaining, err := c.ListSubnets()
+		if err != nil {
+			logFn(fmt.Sprintf("    [경고] Subnet 조회 실패: %v, 재시도...", err))
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		stillExists := 0
+		for _, s := range remaining {
+			if targetNos[s.SubnetNo] {
+				stillExists++
+			}
+		}
+
+		if stillExists == 0 {
+			logFn("    Subnet 삭제 완료 확인")
+			return
+		}
+
+		logFn(fmt.Sprintf("    아직 %d개 Subnet 삭제 중... (%d초 후 재확인)", stillExists, int(pollInterval.Seconds())))
+		time.Sleep(pollInterval)
+	}
+
+	logFn("    [경고] Subnet 삭제 대기 시간 초과, VPC 삭제를 계속 시도합니다")
+}
+
+func (c *Client) waitForServersStopped(serverNos []string, logFn func(string)) {
+	maxWait := 3 * time.Minute
+	pollInterval := 10 * time.Second
+	deadline := time.Now().Add(maxWait)
+
+	targetNos := make(map[string]bool)
+	for _, no := range serverNos {
+		targetNos[no] = true
+	}
+
+	for time.Now().Before(deadline) {
+		servers, err := c.ListServers()
+		if err != nil {
+			logFn(fmt.Sprintf("    [경고] 서버 조회 실패: %v, 재시도...", err))
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		stillRunning := 0
+		for _, s := range servers {
+			if targetNos[s.ServerInstanceNo] && s.ServerInstanceStatus.Code == "RUN" {
+				stillRunning++
+			}
+		}
+
+		if stillRunning == 0 {
+			logFn("    서버 정지 완료 확인")
+			return
+		}
+
+		logFn(fmt.Sprintf("    아직 %d대 서버 정지 중... (%d초 후 재확인)", stillRunning, int(pollInterval.Seconds())))
+		time.Sleep(pollInterval)
+	}
+
+	logFn("    [경고] 서버 정지 대기 시간 초과, 반납을 계속 시도합니다")
+}
+
+func (c *Client) waitForServersTerminated(servers []ServerInstance, logFn func(string)) {
+	maxWait := 5 * time.Minute
+	pollInterval := 10 * time.Second
+	deadline := time.Now().Add(maxWait)
+
+	targetNos := make(map[string]bool)
+	for _, s := range servers {
+		targetNos[s.ServerInstanceNo] = true
+	}
+
+	for time.Now().Before(deadline) {
+		remaining, err := c.ListServers()
+		if err != nil {
+			logFn(fmt.Sprintf("    [경고] 서버 조회 실패: %v, 재시도...", err))
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		stillExists := 0
+		for _, s := range remaining {
+			if targetNos[s.ServerInstanceNo] {
+				stillExists++
+			}
+		}
+
+		if stillExists == 0 {
+			logFn("    서버 반납 완료 확인")
+			return
+		}
+
+		logFn(fmt.Sprintf("    아직 %d대 서버 반납 중... (%d초 후 재확인)", stillExists, int(pollInterval.Seconds())))
+		time.Sleep(pollInterval)
+	}
+
+	logFn("    [경고] 서버 반납 대기 시간 초과")
 }
 
 // --- Delete/Terminate APIs ---
