@@ -109,3 +109,16 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ncp-nuke-darwin-arm64.dmg
+
+  publish-winget:
+    # 중요: MSI 파일 업로드가 끝난 후 실행되어야 파일을 찾을 수 있음
+    needs: msi-windows 
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit to WinGet Packages
+        uses: vedantmgoyal2009/winget-releaser@v2
+        with:
+          identifier: Enbraining.NCPNuke
+          # (?i)를 사용하여 대소문자 구분 없이 .msi 파일 매칭
+          installers-regex: '(?i)\.msi$' 
+          token: ${{ secrets.GH_TOKEN }}
