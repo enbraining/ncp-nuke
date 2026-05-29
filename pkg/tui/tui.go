@@ -374,7 +374,7 @@ func (m model) View() string {
 		)
 
 	case stateSelectAction:
-		actions := []string{"활성화 + 비밀번호 초기화", "비활성화", "리소스 전체 삭제 (Nuke)", "리소스 목록 조회"}
+		actions := []string{"Sub Account 활성화", "Sub Account 비활성화", "리소스 전체 삭제", "리소스 전체 조회"}
 		var items string
 		for i, a := range actions {
 			cursor := "  "
