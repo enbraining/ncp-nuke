@@ -52,6 +52,53 @@ func (r *ResourceSummary) TotalCount() int {
 		len(r.InitScripts) + len(r.LoginKeys) + len(r.PlacementGroups)
 }
 
+// ResourceCount is a single category's resource count for display.
+type ResourceCount struct {
+	Name  string
+	Count int
+}
+
+// Breakdown returns a per-category resource count in display order,
+// including only categories that currently have at least one resource.
+func (r *ResourceSummary) Breakdown() []ResourceCount {
+	all := []ResourceCount{
+		{"Server", len(r.Servers)},
+		{"Block Storage", len(r.BlockStorages)},
+		{"Block Storage Snapshot", len(r.BlockStorageSnapshots)},
+		{"Public IP", len(r.PublicIps)},
+		{"NAS Volume", len(r.NasVolumes)},
+		{"NAS Volume Snapshot", len(r.NasVolumeSnapshots)},
+		{"Load Balancer", len(r.LoadBalancers)},
+		{"Target Group", len(r.TargetGroups)},
+		{"Cloud DB", len(r.CloudDBs)},
+		{"Cloud PostgreSQL", len(r.CloudPostgresqls)},
+		{"Cloud MongoDB", len(r.CloudMongoDBs)},
+		{"Cloud MariaDB", len(r.CloudMariaDBs)},
+		{"Cloud MySQL", len(r.CloudMySQLs)},
+		{"Cloud Redis", len(r.CloudRedises)},
+		{"VPC", len(r.Vpcs)},
+		{"Subnet", len(r.Subnets)},
+		{"NAT Gateway", len(r.NatGateways)},
+		{"VPC Peering", len(r.VpcPeerings)},
+		{"Network ACL", len(r.NetworkAcls)},
+		{"Route Table", len(r.RouteTables)},
+		{"Access Control Group", len(r.AccessControlGroups)},
+		{"Auto Scaling Group", len(r.AutoScalingGroups)},
+		{"Launch Configuration", len(r.LaunchConfigurations)},
+		{"NKS Cluster", len(r.NksClusters)},
+		{"Init Script", len(r.InitScripts)},
+		{"Login Key", len(r.LoginKeys)},
+		{"Placement Group", len(r.PlacementGroups)},
+	}
+	var out []ResourceCount
+	for _, c := range all {
+		if c.Count > 0 {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // --- List APIs ---
 
 func (c *Client) ListServers() ([]ServerInstance, error) {

@@ -15,6 +15,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// confirmPhrase is the exact text a user must type to authorize a destructive action.
+const confirmPhrase = "CONFIRM DELETE"
+
 // Application State
 type sessionState int
 
@@ -127,7 +130,7 @@ func initialModel(accounts []ncp.RootAccount, cfg *config.Config) model {
 		PaddingRight(2)
 
 	ci := textinput.New()
-	ci.Placeholder = "REAL DELETE"
+	ci.Placeholder = confirmPhrase
 	ci.CharLimit = 20
 	ci.Width = 30
 
@@ -207,11 +210,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.actionCursor--
 				}
 			case "down", "j":
-				if m.actionCursor < 1 {
+				if m.actionCursor < 3 {
 					m.actionCursor++
 				}
 			case "enter":
-				if m.actionCursor == 0 {
+				switch m.actionCursor {
+				case 0:
 					m.action = "activate"
 					// Check if any selected account has no password in excel
 					needsPassword := false
@@ -227,8 +231,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.passwordInput.Cursor.BlinkCmd()
 					}
 					m.state = stateConfirm
-				} else {
+				case 1:
 					m.action = "deactivate"
+					m.state = stateConfirm
+				case 2:
+					m.action = "nuke"
+					m.state = stateConfirm
+				case 3:
+					m.action = "list"
 					m.state = stateConfirm
 				}
 			case "b", "B", "esc":
@@ -252,7 +262,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stateConfirm:
 			switch msg.String() {
 			case "y", "Y":
-				if m.action == "deactivate" && m.cleanup {
+				if (m.action == "deactivate" && m.cleanup) || m.action == "nuke" {
 					m.state = stateTypingConfirm
 					m.confirmInput.Reset()
 					m.confirmInput.Focus()
@@ -279,7 +289,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stateTypingConfirm:
 			switch msg.String() {
 			case "enter":
-				if m.confirmInput.Value() == "REAL DELETE" {
+				if m.confirmInput.Value() == confirmPhrase {
 					m.state = stateRunning
 					go func() {
 						processSelectedAccounts(m.accounts, m.selected, m.action, m.globalPassword, m.cleanup, m.cfg, func(s string) {
@@ -364,7 +374,7 @@ func (m model) View() string {
 		)
 
 	case stateSelectAction:
-		actions := []string{"활성화 + 비밀번호 초기화", "비활성화"}
+		actions := []string{"활성화 + 비밀번호 초기화", "비활성화", "리소스 전체 삭제 (Nuke)", "리소스 목록 조회"}
 		var items string
 		for i, a := range actions {
 			cursor := "  "
@@ -400,8 +410,13 @@ func (m model) View() string {
 
 	case stateConfirm:
 		actionLabel := "활성화 + 비밀번호 초기화"
-		if m.action == "deactivate" {
+		switch m.action {
+		case "deactivate":
 			actionLabel = "비활성화"
+		case "nuke":
+			actionLabel = "리소스 전체 삭제 (Nuke)"
+		case "list":
+			actionLabel = "리소스 목록 조회"
 		}
 
 		targets := ""
@@ -423,6 +438,9 @@ func (m model) View() string {
 				cleanupStatus = "[x] Cleanup (서비스 해지 및 리소스 삭제)"
 			}
 			options = fmt.Sprintf("\n옵션:\n%s (Toggle: 'c')\n", cleanupStatus)
+		} else if m.action == "nuke" {
+			warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true)
+			options = "\n" + warningStyle.Render("⚠ 선택한 계정의 모든 리소스(서버/스토리지/IP/DB/VPC 등)를 영구 삭제합니다. (서브 계정은 유지)") + "\n"
 		}
 
 		content := fmt.Sprintf(`
@@ -448,13 +466,13 @@ func (m model) View() string {
 
 %s
 정말로 모든 리소스를 삭제하시겠습니까?
-아래에 "REAL DELETE"를 정확히 입력하세요.
+아래에 "%s"를 정확히 입력하세요.
 
 %s
 %s
 
 (Enter: 확인, Esc: 뒤로)
-`, titleStyle.Render("안전 확인"), warningStyle.Render("⚠ 이 작업은 되돌릴 수 없습니다!"), m.confirmInput.View(), errMsg)
+`, titleStyle.Render("안전 확인"), warningStyle.Render("⚠ 이 작업은 되돌릴 수 없습니다!"), confirmPhrase, m.confirmInput.View(), errMsg)
 		return baseStyle.Render(content)
 
 	case stateRunning, stateDone:
@@ -473,6 +491,7 @@ func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, 
 	logFn("작업 시작...")
 
 	totalSuccess, totalFail := 0, 0
+	totalCleanupSuccess, totalCleanupFail := 0, 0
 
 	for i, account := range accounts {
 		if !selected[i] {
@@ -482,8 +501,29 @@ func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, 
 		logFn(fmt.Sprintf("\n[루트 계정: %s]", account.AccountName))
 		client := ncp.NewClient(account.AccessKey, account.SecretKey)
 
-		// Cleanup phase (deactivate + cleanup only)
-		if action == "deactivate" && cleanup {
+		// Read-only resource listing.
+		if action == "list" {
+			logFn("  리소스 조회 중...")
+			summary, errs := client.ListAllResources()
+			for _, e := range errs {
+				logFn(fmt.Sprintf("    [경고] 조회 오류: %v", e))
+			}
+			if cfg != nil {
+				applyFilter(summary, cfg)
+			}
+			if summary.TotalCount() == 0 {
+				logFn("  리소스 없음")
+			} else {
+				logFn(fmt.Sprintf("  총 %d개 리소스:", summary.TotalCount()))
+				for _, bc := range summary.Breakdown() {
+					logFn(fmt.Sprintf("    - %s: %d개", bc.Name, bc.Count))
+				}
+			}
+			continue
+		}
+
+		// Cleanup phase (deactivate + cleanup, or standalone nuke)
+		if (action == "deactivate" && cleanup) || action == "nuke" {
 			logFn("  리소스 조회 중...")
 			summary, errs := client.ListAllResources()
 			for _, e := range errs {
@@ -499,10 +539,17 @@ func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, 
 				s, f := client.CleanupAllResources(summary, func(msg string) {
 					logFn("    " + msg)
 				})
+				totalCleanupSuccess += s
+				totalCleanupFail += f
 				logFn(fmt.Sprintf("  서비스 해지 및 리소스 삭제 결과: 성공 %d, 실패 %d", s, f))
 			} else {
 				logFn("  삭제할 리소스 없음")
 			}
+		}
+
+		// Nuke only targets resources; sub accounts are left untouched.
+		if action == "nuke" {
+			continue
 		}
 
 		// Sub account operation
@@ -577,11 +624,24 @@ func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, 
 		}
 	}
 
+	if action == "list" {
+		logFn("\n리소스 조회 완료")
+		return
+	}
+
+	if action == "nuke" {
+		logFn(fmt.Sprintf("\n최종 결과: 리소스 삭제 성공 %d, 실패 %d", totalCleanupSuccess, totalCleanupFail))
+		return
+	}
+
 	actionLabel := "활성화"
 	if action == "deactivate" {
 		actionLabel = "비활성화"
 	}
 	logFn(fmt.Sprintf("\n최종 결과: 서브계정 %s 성공 %d, 실패 %d", actionLabel, totalSuccess, totalFail))
+	if cleanup {
+		logFn(fmt.Sprintf("리소스 삭제 성공 %d, 실패 %d", totalCleanupSuccess, totalCleanupFail))
+	}
 }
 
 func applyFilter(summary *ncp.ResourceSummary, cfg *config.Config) {

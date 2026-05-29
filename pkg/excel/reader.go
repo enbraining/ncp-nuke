@@ -69,6 +69,9 @@ func ReadAccounts(filePath string) ([]ncp.RootAccount, error) {
 	if colIdx["secretkey"] == -1 {
 		return nil, fmt.Errorf("column 'SecretKey' not found in header row")
 	}
+	if colIdx["iamusername"] == -1 {
+		return nil, fmt.Errorf("column 'IAM Username' not found in header row")
+	}
 
 	var accounts []ncp.RootAccount
 	for i, row := range rows[1:] {
@@ -76,9 +79,17 @@ func ReadAccounts(filePath string) ([]ncp.RootAccount, error) {
 
 		accessKey := getCell(row, colIdx["accesskey"])
 		secretKey := getCell(row, colIdx["secretkey"])
+		iamUsername := getCell(row, colIdx["iamusername"])
 
 		if accessKey == "" || secretKey == "" {
 			fmt.Printf("[WARN] Row %d: AccessKey or SecretKey is empty, skipping\n", lineNum)
+			continue
+		}
+
+		// IAM Username is mandatory so that operations always target a specific
+		// sub account instead of every sub account under the root account.
+		if iamUsername == "" {
+			fmt.Printf("[WARN] Row %d: IAM Username is empty, skipping\n", lineNum)
 			continue
 		}
 
@@ -88,11 +99,6 @@ func ReadAccounts(filePath string) ([]ncp.RootAccount, error) {
 		}
 		if name == "" {
 			name = fmt.Sprintf("Account-%d", lineNum-1)
-		}
-
-		iamUsername := ""
-		if colIdx["iamusername"] != -1 {
-			iamUsername = getCell(row, colIdx["iamusername"])
 		}
 
 		password := ""
