@@ -41,12 +41,31 @@
   button.primary.danger { background: var(--danger); color: #fff; }
   button.primary:disabled { opacity: .5; cursor: not-allowed; }
   #log { background: #0a0e12; border: 1px solid var(--border); border-radius: 8px; padding: 14px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55;
-    white-space: pre-wrap; word-break: break-word; height: 360px; overflow-y: auto; }
+    font-size: 13px; line-height: 1.5; height: 420px; overflow-y: auto; }
+  #log .placeholder { color: var(--muted); font-size: 13px; }
+  .acct-card { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+  .acct-head { background: #141b24; padding: 9px 12px; font-weight: 600; color: #6cb6ff;
+    border-bottom: 1px solid var(--border); font-size: 13px; }
+  .global-line { color: var(--muted); font-size: 12.5px; padding: 4px 2px; }
+  .section { border-top: 1px solid #1c242e; }
+  .section:first-child { border-top: none; }
+  .section > summary { list-style: none; cursor: pointer; padding: 9px 12px; display: flex;
+    align-items: center; gap: 8px; font-size: 13px; }
+  .section > summary::-webkit-details-marker { display: none; }
+  .section > summary::before { content: "▸"; color: var(--muted); font-size: 11px; transition: .12s; }
+  .section[open] > summary::before { transform: rotate(90deg); }
+  .section .sec-num { color: var(--accent); font-weight: 600; min-width: 20px; }
+  .section .sec-title { flex: 1; }
+  .section .sec-badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #1c242e; color: var(--muted); }
+  .section .sec-badge.fail { background: var(--danger-bg); color: var(--danger); }
+  .section .sec-badge.ok { background: #0e1f1a; color: var(--accent); }
+  .details { padding: 2px 12px 10px 40px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; line-height: 1.55; }
+  .details .dline { white-space: pre-wrap; word-break: break-word; }
   .log-fail { color: var(--danger); }
   .log-ok { color: var(--accent); }
   .log-skip { color: var(--muted); }
-  .log-head { color: #6cb6ff; }
+  .log-info { color: var(--text); }
   .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
   .checkbox-cell { width: 40px; text-align: center; }
   .confirm-box { margin-top: 12px; padding: 12px; border: 1px solid var(--danger);
@@ -122,7 +141,7 @@
 
   <div class="panel">
     <h2>3. 진행 로그</h2>
-    <div id="log"></div>
+    <div id="log"><div class="placeholder">작업을 실행하면 단계별 진행 상황이 여기에 표시됩니다.</div></div>
   </div>
 </main>
 
@@ -202,10 +221,18 @@ function updateRun() {
 
 document.getElementById('runBtn').addEventListener('click', run);
 
+// Rendering context for the structured progress tree.
+const view = { log: null, card: null, section: null, sectionCount: 0 };
+
+function resetLog() {
+  const log = document.getElementById('log');
+  log.innerHTML = '';
+  view.log = log; view.card = null; view.section = null; view.sectionCount = 0;
+}
+
 async function run() {
   state.running = true; updateRun();
-  const log = document.getElementById('log');
-  log.textContent = '';
+  resetLog();
   const body = {
     selected: [...state.selected],
     action: state.action,
@@ -217,7 +244,7 @@ async function run() {
     const res = await fetch('/api/run', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
     });
-    if (!res.ok) { appendLog('[오류] ' + (await res.text())); return; }
+    if (!res.ok) { handleEvent({type:'global', text:'[오류] ' + (await res.text()), status:'fail'}); return; }
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = '';
@@ -229,27 +256,67 @@ async function run() {
       while ((nl = buf.indexOf('\n\n')) >= 0) {
         const chunk = buf.slice(0, nl); buf = buf.slice(nl + 2);
         for (const line of chunk.split('\n')) {
-          if (line.startsWith('data: ')) appendLog(line.slice(6));
+          if (line.startsWith('data: ')) {
+            const payload = line.slice(6);
+            if (payload === 'end') continue;
+            try { handleEvent(JSON.parse(payload)); } catch (_) {}
+          }
         }
       }
     }
   } catch (e) {
-    appendLog('[오류] ' + e.message);
+    handleEvent({type:'global', text:'[오류] ' + e.message, status:'fail'});
   } finally {
     state.running = false; updateRun();
   }
 }
 
-function appendLog(text) {
-  const log = document.getElementById('log');
-  const span = document.createElement('span');
-  span.textContent = text + '\n';
-  if (text.includes('[실패]') || text.includes('[오류]')) span.className = 'log-fail';
-  else if (text.includes('[성공]')) span.className = 'log-ok';
-  else if (text.includes('[건너뜀]') || text.includes('[경고]')) span.className = 'log-skip';
-  else if (text.includes('[루트 계정')) span.className = 'log-head';
-  log.appendChild(span);
+function statusClass(s) {
+  return s === 'fail' ? 'log-fail' : s === 'ok' ? 'log-ok' : s === 'skip' ? 'log-skip' : 'log-info';
+}
+
+function handleEvent(ev) {
+  const log = view.log || document.getElementById('log');
+  if (ev.type === 'account') {
+    const name = ev.text.replace(/^\[루트 계정:\s*/, '').replace(/\]$/, '');
+    const card = document.createElement('div');
+    card.className = 'acct-card';
+    card.innerHTML = `<div class="acct-head">🗂 ${esc(name)}</div>`;
+    log.appendChild(card);
+    view.card = card; view.section = null; view.sectionCount = 0;
+  } else if (ev.type === 'section') {
+    view.sectionCount++;
+    const sec = document.createElement('details');
+    sec.className = 'section'; sec.open = true;
+    const badgeCls = ev.status === 'fail' ? 'fail' : (ev.status === 'ok' ? 'ok' : '');
+    sec.innerHTML = `<summary><span class="sec-num">${view.sectionCount}.</span>` +
+      `<span class="sec-title ${statusClass(ev.status)}">${esc(ev.text)}</span>` +
+      `<span class="sec-badge ${badgeCls}" style="display:none"></span></summary>` +
+      `<div class="details"></div>`;
+    (view.card || log).appendChild(sec);
+    view.section = sec;
+  } else if (ev.type === 'detail') {
+    const target = view.section ? view.section.querySelector('.details') : (view.card || log);
+    const d = document.createElement('div');
+    d.className = 'dline ' + statusClass(ev.status);
+    d.style.paddingLeft = Math.max(0, (ev.depth - 2)) * 14 + 'px';
+    d.textContent = ev.text;
+    target.appendChild(d);
+    // reflect failures on the section badge
+    if (view.section && ev.status === 'fail') markSection(view.section, 'fail', '실패');
+  } else { // global
+    const g = document.createElement('div');
+    g.className = 'global-line ' + statusClass(ev.status);
+    g.textContent = ev.text;
+    (view.card || log).appendChild(g);
+  }
   log.scrollTop = log.scrollHeight;
+}
+
+function markSection(sec, cls, label) {
+  const b = sec.querySelector('.sec-badge');
+  if (!b) return;
+  b.className = 'sec-badge ' + cls; b.textContent = label; b.style.display = '';
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }

@@ -76,9 +76,7 @@ func Process(accounts []ncp.RootAccount, selected map[int]bool, action, globalPa
 
 			if summary.TotalCount() > 0 {
 				logFn(fmt.Sprintf("  총 %d개 서비스 해지 및 리소스 삭제 시작...", summary.TotalCount()))
-				s, f := client.CleanupAllResources(summary, func(msg string) {
-					logFn("    " + msg)
-				})
+				s, f := client.CleanupAllResources(summary, logFn)
 				totalCleanupSuccess += s
 				totalCleanupFail += f
 				logFn(fmt.Sprintf("  서비스 해지 및 리소스 삭제 결과: 성공 %d, 실패 %d", s, f))

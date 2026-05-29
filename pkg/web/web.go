@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"ncp-nuke/pkg/config"
@@ -208,8 +209,15 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Each runner log line is turned into a structured event. The hierarchy is
+	// derived from leading-space depth: depth 0 = global, 1 = section, 2+ = detail.
 	send := func(line string) {
-		fmt.Fprintf(w, "data: %s\n\n", escapeSSE(line))
+		ev := classifyLine(line)
+		if ev.Text == "" {
+			return
+		}
+		b, _ := json.Marshal(ev)
+		fmt.Fprintf(w, "data: %s\n\n", b)
 		flusher.Flush()
 	}
 
@@ -218,23 +226,49 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 }
 
+type progressEvent struct {
+	Type   string `json:"type"`   // account | global | section | detail
+	Text   string `json:"text"`
+	Depth  int    `json:"depth"`
+	Status string `json:"status"` // ok | fail | skip | info
+}
+
+func classifyLine(line string) progressEvent {
+	trimmedLeft := strings.TrimLeft(line, "\n")
+	leading := len(trimmedLeft) - len(strings.TrimLeft(trimmedLeft, " "))
+	depth := leading / 2
+	text := strings.TrimSpace(line)
+
+	ev := progressEvent{Text: text, Depth: depth, Status: classifyStatus(text)}
+	switch {
+	case strings.HasPrefix(text, "[루트 계정"):
+		ev.Type = "account"
+	case depth <= 0:
+		ev.Type = "global"
+	case depth == 1:
+		ev.Type = "section"
+	default:
+		ev.Type = "detail"
+	}
+	return ev
+}
+
+func classifyStatus(t string) string {
+	switch {
+	case strings.Contains(t, "[실패]") || strings.Contains(t, "[오류]"):
+		return "fail"
+	case strings.Contains(t, "[성공]"):
+		return "ok"
+	case strings.Contains(t, "[건너뜀]") || strings.Contains(t, "[경고]") || strings.Contains(t, "[대기]"):
+		return "skip"
+	default:
+		return "info"
+	}
+}
+
 func maskKey(k string) string {
 	if len(k) <= 6 {
 		return "******"
 	}
 	return k[:3] + "****" + k[len(k)-3:]
-}
-
-// escapeSSE keeps multi-line log messages valid in the SSE "data:" framing by
-// turning newlines into spaces (the client renders one event per line).
-func escapeSSE(s string) string {
-	out := make([]rune, 0, len(s))
-	for _, r := range s {
-		if r == '\n' || r == '\r' {
-			out = append(out, ' ')
-			continue
-		}
-		out = append(out, r)
-	}
-	return string(out)
 }
