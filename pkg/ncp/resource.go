@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -557,7 +558,22 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 			allNos = append(allNos, s.ServerInstanceNo)
 		}
 		logFn(fmt.Sprintf("  서버 %d대 반납(삭제) 중...", len(allNos)))
-		if err := c.TerminateServers(allNos); err != nil {
+		err := c.TerminateServers(allNos)
+		if err != nil {
+			// A protected server (반납 보호) blocks termination. Disable protection
+			// on all target servers and retry once.
+			logFn("    [경고] 서버 반납 실패, 반납 보호 해제 후 재시도...")
+			for _, s := range summary.Servers {
+				if e := c.SetServerTerminationProtection(s.ServerInstanceNo, false); e != nil {
+					logFn(fmt.Sprintf("      [경고] 반납 보호 해제 실패 (%s): %v", s.ServerName, e))
+				} else {
+					logFn(fmt.Sprintf("      반납 보호 해제: %s", s.ServerName))
+				}
+			}
+			time.Sleep(3 * time.Second)
+			err = c.TerminateServers(allNos)
+		}
+		if err != nil {
 			logFn(fmt.Sprintf("    [실패] 서버 반납: %v", err))
 			fail += len(allNos)
 		} else {
@@ -1062,6 +1078,24 @@ func (c *Client) TerminateServers(instanceNos []string) error {
 		params.Set(fmt.Sprintf("serverInstanceNoList.%d", i+1), no)
 	}
 	path := "/terminateServerInstances?" + params.Encode()
+	body, status, err := c.doRequestWithBase(VServerBaseURL, "GET", path, nil)
+	if err != nil {
+		return err
+	}
+	if status != 200 {
+		return fmt.Errorf("HTTP %d - %s", status, string(body))
+	}
+	return nil
+}
+
+// SetServerTerminationProtection enables/disables 반납 보호 (termination
+// protection) for a server so it can be terminated.
+func (c *Client) SetServerTerminationProtection(serverInstanceNo string, protect bool) error {
+	params := url.Values{}
+	params.Set("responseFormatType", "json")
+	params.Set("serverInstanceNo", serverInstanceNo)
+	params.Set("isProtectServerTermination", strconv.FormatBool(protect))
+	path := "/setProtectServerTermination?" + params.Encode()
 	body, status, err := c.doRequestWithBase(VServerBaseURL, "GET", path, nil)
 	if err != nil {
 		return err
