@@ -692,10 +692,31 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 	}
 
 	// 14. NAT Gateways (Route 삭제 후)
+	// Route removal is asynchronous on NCP, so a NAT delete right after may still
+	// see the route and fail (returnCode 1018005). Retry with a short delay.
 	for _, nat := range summary.NatGateways {
 		logFn(fmt.Sprintf("  NAT Gateway 삭제: %s (%s)", nat.NatGatewayName, nat.NatGatewayInstanceNo))
-		if err := c.DeleteNatGateway(nat.NatGatewayInstanceNo); err != nil {
-			logFn(fmt.Sprintf("    [실패] %v", err))
+
+		maxRetries := 5
+		var lastErr error
+		for retry := 0; retry < maxRetries; retry++ {
+			if retry > 0 {
+				logFn(fmt.Sprintf("    경로 반영 대기 후 재시도 %d/%d...", retry+1, maxRetries))
+				time.Sleep(10 * time.Second)
+			}
+			if err := c.DeleteNatGateway(nat.NatGatewayInstanceNo); err != nil {
+				lastErr = err
+				if retry < maxRetries-1 {
+					logFn(fmt.Sprintf("    [대기] %v", err))
+				}
+			} else {
+				lastErr = nil
+				break
+			}
+		}
+
+		if lastErr != nil {
+			logFn(fmt.Sprintf("    [실패] %v", lastErr))
 			fail++
 		} else {
 			logFn("    [성공]")
