@@ -16,6 +16,8 @@ ncp-cli
 
 # Local configuration/test files
 accounts.xlsx
+accounts_template.xlsx
+*_template.xlsx
 *.log
 
 # Dependency directories
