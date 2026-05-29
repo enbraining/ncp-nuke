@@ -629,17 +629,27 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 
 	// 12. Route Tables (Clean up NAT/Peering routes FIRST - 의존성 제거)
 	if len(summary.RouteTables) > 0 {
-		logFn("  Route Table 정리 (NAT/Peering 경로 삭제)...")
+		logFn(fmt.Sprintf("  Route Table 정리 (NAT/Peering 경로 삭제)... 테이블 %d개", len(summary.RouteTables)))
 		routesToDelete := 0
 		for _, rt := range summary.RouteTables {
-			for _, route := range rt.RouteList {
+			// getRouteTableList does not include routes; (re)fetch them so failures surface.
+			routes := rt.RouteList
+			if fetched, err := c.ListRoutes(rt.VpcNo, rt.RouteTableNo); err != nil {
+				logFn(fmt.Sprintf("    [경고] 경로 조회 실패 (Table %s, vpcNo=%q): %v", rt.RouteTableName, rt.VpcNo, err))
+			} else {
+				routes = fetched
+			}
+
+			logFn(fmt.Sprintf("    Table %s (vpcNo=%s): 경로 %d개", rt.RouteTableName, rt.VpcNo, len(routes)))
+			for _, route := range routes {
+				logFn(fmt.Sprintf("      · %s type=%s target=%s(%s)", route.DestinationCidrBlock, route.TargetTypeCode.Code, route.TargetName, route.TargetNo))
 				if route.TargetTypeCode.Code == "NATGW" || route.TargetTypeCode.Code == "VPCPEERING" {
 					routesToDelete++
-					logFn(fmt.Sprintf("    경로 삭제: Table %s -> %s (Target: %s)", rt.RouteTableName, route.DestinationCidrBlock, route.TargetTypeCode.Code))
+					logFn(fmt.Sprintf("      경로 삭제 시도: %s -> %s", rt.RouteTableName, route.TargetTypeCode.Code))
 					if err := c.RemoveRoute(rt.VpcNo, rt.RouteTableNo, route); err != nil {
-						logFn(fmt.Sprintf("      [실패] %v", err))
+						logFn(fmt.Sprintf("        [실패] %v", err))
 					} else {
-						logFn("      [성공]")
+						logFn("        [성공]")
 					}
 				}
 			}

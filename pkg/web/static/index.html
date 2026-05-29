@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NCP Nuke</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #1a2029; --border: #2a3340; --text: #e6e6e6;
+    --muted: #8a94a3; --accent: #04b575; --danger: #ff4d4f; --danger-bg: #2a1416;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple SD Gothic Neo", sans-serif; }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .badge { color: var(--muted); font-size: 13px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px; display: grid; gap: 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  tr:last-child td { border-bottom: none; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .action-btn { flex: 1 1 200px; padding: 14px; border-radius: 8px; border: 1px solid var(--border);
+    background: #11161d; color: var(--text); cursor: pointer; font-size: 14px; text-align: left; transition: .12s; }
+  .action-btn:hover { border-color: var(--accent); }
+  .action-btn.selected { border-color: var(--accent); background: #0e1f1a; }
+  .action-btn.danger.selected { border-color: var(--danger); background: var(--danger-bg); }
+  .action-btn small { display: block; color: var(--muted); margin-top: 4px; font-size: 12px; }
+  label.opt { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
+  input[type=text], input[type=password] { background: #11161d; border: 1px solid var(--border);
+    color: var(--text); padding: 9px 11px; border-radius: 7px; font-size: 14px; width: 100%; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-top: 12px; }
+  .field { flex: 1 1 240px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .run { margin-top: 16px; display: flex; gap: 12px; align-items: center; }
+  button.primary { background: var(--accent); color: #052b1f; border: none; padding: 11px 22px;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  button.primary.danger { background: var(--danger); color: #fff; }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  #log { background: #0a0e12; border: 1px solid var(--border); border-radius: 8px; padding: 14px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55;
+    white-space: pre-wrap; word-break: break-word; height: 360px; overflow-y: auto; }
+  .log-fail { color: var(--danger); }
+  .log-ok { color: var(--accent); }
+  .log-skip { color: var(--muted); }
+  .log-head { color: #6cb6ff; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .checkbox-cell { width: 40px; text-align: center; }
+  .confirm-box { margin-top: 12px; padding: 12px; border: 1px solid var(--danger);
+    background: var(--danger-bg); border-radius: 8px; display: none; }
+  .confirm-box.show { display: block; }
+  .confirm-box strong { color: var(--danger); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧨 NCP Nuke</h1>
+  <span class="badge">Sub Account & Resource 관리 콘솔</span>
+</header>
+<main>
+  <div class="panel">
+    <h2>1. 대상 계정 선택</h2>
+    <table>
+      <thead><tr>
+        <th class="checkbox-cell"><input type="checkbox" id="selAll"></th>
+        <th>Account Name</th><th>IAM Username</th><th>Access Key</th>
+      </tr></thead>
+      <tbody id="accts"><tr><td colspan="4" style="color:var(--muted)">불러오는 중...</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>2. 작업 선택</h2>
+    <div class="actions" id="actions">
+      <button class="action-btn" data-action="activate">Sub Account 활성화<small>비밀번호 초기화 포함</small></button>
+      <button class="action-btn" data-action="deactivate">Sub Account 비활성화<small>로그인 차단</small></button>
+      <button class="action-btn danger" data-action="nuke">리소스 전체 삭제<small>모든 리소스 영구 삭제 (서브계정 유지)</small></button>
+      <button class="action-btn" data-action="list">리소스 전체 조회<small>읽기 전용</small></button>
+    </div>
+
+    <label class="opt" id="cleanupOpt" style="display:none">
+      <input type="checkbox" id="cleanup"> 비활성화 시 리소스도 함께 삭제 (Cleanup)
+    </label>
+
+    <div class="row" id="passwordRow" style="display:none">
+      <div class="field">
+        <label>공통 비밀번호 (비우면 자동 생성)</label>
+        <input type="password" id="password" placeholder="활성화 시 적용할 비밀번호">
+      </div>
+    </div>
+
+    <div class="confirm-box" id="confirmBox">
+      <div>⚠ <strong>되돌릴 수 없는 작업</strong>입니다. 계속하려면 아래에 <strong>CONFIRM DELETE</strong> 를 입력하세요.</div>
+      <div class="row"><div class="field"><input type="text" id="confirm" placeholder="CONFIRM DELETE"></div></div>
+    </div>
+
+    <div class="run">
+      <button class="primary" id="runBtn" disabled>실행</button>
+      <span class="hint" id="runHint">계정과 작업을 선택하세요.</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>3. 진행 로그</h2>
+    <div id="log"></div>
+  </div>
+</main>
+
+<script>
+const state = { accounts: [], selected: new Set(), action: null, running: false };
+
+async function loadAccounts() {
+  const res = await fetch('/api/accounts');
+  state.accounts = await res.json();
+  const tb = document.getElementById('accts');
+  tb.innerHTML = '';
+  if (!state.accounts.length) {
+    tb.innerHTML = '<tr><td colspan="4" style="color:var(--muted)">계정이 없습니다.</td></tr>';
+    return;
+  }
+  for (const a of state.accounts) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="checkbox-cell"><input type="checkbox" data-idx="${a.index}"></td>
+      <td>${esc(a.accountName)}</td><td>${esc(a.iamUsername)}</td><td>${esc(a.accessKey)}</td>`;
+    tb.appendChild(tr);
+  }
+  tb.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const idx = +cb.dataset.idx;
+      cb.checked ? state.selected.add(idx) : state.selected.delete(idx);
+      updateRun();
+    });
+  });
+}
+
+document.getElementById('selAll').addEventListener('change', e => {
+  document.querySelectorAll('#accts input[type=checkbox]').forEach(cb => {
+    cb.checked = e.target.checked;
+    const idx = +cb.dataset.idx;
+    e.target.checked ? state.selected.add(idx) : state.selected.delete(idx);
+  });
+  updateRun();
+});
+
+document.querySelectorAll('.action-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    state.action = btn.dataset.action;
+    document.querySelectorAll('.action-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    document.getElementById('cleanupOpt').style.display = state.action === 'deactivate' ? 'flex' : 'none';
+    document.getElementById('passwordRow').style.display = state.action === 'activate' ? 'flex' : 'none';
+    updateRun();
+  });
+});
+
+document.getElementById('cleanup').addEventListener('change', updateRun);
+document.getElementById('confirm').addEventListener('input', updateRun);
+
+function isDestructive() {
+  return state.action === 'nuke' || (state.action === 'deactivate' && document.getElementById('cleanup').checked);
+}
+
+function updateRun() {
+  const btn = document.getElementById('runBtn');
+  const hint = document.getElementById('runHint');
+  const confirmBox = document.getElementById('confirmBox');
+  const destructive = isDestructive();
+  confirmBox.classList.toggle('show', destructive);
+  btn.classList.toggle('danger', destructive);
+
+  let ok = state.selected.size > 0 && state.action && !state.running;
+  if (destructive && document.getElementById('confirm').value !== 'CONFIRM DELETE') ok = false;
+  btn.disabled = !ok;
+
+  if (state.running) hint.textContent = '실행 중...';
+  else if (!state.selected.size) hint.textContent = '계정을 선택하세요.';
+  else if (!state.action) hint.textContent = '작업을 선택하세요.';
+  else if (destructive && document.getElementById('confirm').value !== 'CONFIRM DELETE')
+    hint.textContent = 'CONFIRM DELETE 를 입력하세요.';
+  else hint.textContent = `${state.selected.size}개 계정 대상`;
+}
+
+document.getElementById('runBtn').addEventListener('click', run);
+
+async function run() {
+  state.running = true; updateRun();
+  const log = document.getElementById('log');
+  log.textContent = '';
+  const body = {
+    selected: [...state.selected],
+    action: state.action,
+    password: document.getElementById('password').value,
+    cleanup: document.getElementById('cleanup').checked,
+    confirm: document.getElementById('confirm').value,
+  };
+  try {
+    const res = await fetch('/api/run', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+    });
+    if (!res.ok) { appendLog('[오류] ' + (await res.text())); return; }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let nl;
+      while ((nl = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, nl); buf = buf.slice(nl + 2);
+        for (const line of chunk.split('\n')) {
+          if (line.startsWith('data: ')) appendLog(line.slice(6));
+        }
+      }
+    }
+  } catch (e) {
+    appendLog('[오류] ' + e.message);
+  } finally {
+    state.running = false; updateRun();
+  }
+}
+
+function appendLog(text) {
+  const log = document.getElementById('log');
+  const span = document.createElement('span');
+  span.textContent = text + '\n';
+  if (text.includes('[실패]') || text.includes('[오류]')) span.className = 'log-fail';
+  else if (text.includes('[성공]')) span.className = 'log-ok';
+  else if (text.includes('[건너뜀]') || text.includes('[경고]')) span.className = 'log-skip';
+  else if (text.includes('[루트 계정')) span.className = 'log-head';
+  log.appendChild(span);
+  log.scrollTop = log.scrollHeight;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+loadAccounts();
+</script>
+</body>
+</html>

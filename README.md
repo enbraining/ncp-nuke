@@ -130,6 +130,25 @@ TUI가 실행되면 다음 흐름으로 진행됩니다:
 | `-a, --account` | 특정 루트 계정만 대상 (AccountName 기준) |
 | `--config` | 리소스 필터 설정 파일 경로 (JSON) |
 
+### 3. 웹 애플리케이션 실행
+
+TUI 대신 브라우저 UI로도 사용할 수 있습니다.
+
+```bash
+ncp-nuke serve -f ./accounts.xlsx          # 기본 포트 8080
+ncp-nuke serve -f ./accounts.xlsx -p 9000  # 포트 지정
+ncp-nuke serve -f ./accounts.xlsx --config ./config.json
+```
+
+실행 후 브라우저에서 `http://127.0.0.1:8080` 에 접속합니다.
+
+1. **계정 선택** - 체크박스로 대상 계정 선택
+2. **작업 선택** - Sub Account 활성화 / 비활성화 / 리소스 전체 삭제 / 리소스 전체 조회
+3. **안전 확인** - 파괴적 작업은 `CONFIRM DELETE` 입력 후 실행
+4. **진행 로그** - 작업 진행 상황이 실시간(SSE)으로 표시됩니다
+
+> 로컬 전용(127.0.0.1) 서버이며 인증 키가 그대로 사용되므로 신뢰된 환경에서만 실행하세요.
+
 ## 주의사항
 
 *   Nuke / Cleanup은 매우 강력한 파괴적 동작을 수행하므로 실제 운영 중인 계정에 사용할 때 각별히 주의하세요. 안전을 위해 "CONFIRM DELETE" 입력 확인이 필요합니다.
