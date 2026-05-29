@@ -34,34 +34,7 @@ func ReadAccounts(filePath string) ([]ncp.RootAccount, error) {
 
 	// Find column indices from header row
 	header := rows[0]
-	colIdx := map[string]int{
-		"accountname": -1,
-		"accesskey":   -1,
-		"secretkey":   -1,
-		"iamusername": -1,
-		"password":    -1,
-	}
-
-	for i, cell := range header {
-		normalized := strings.ToLower(strings.TrimSpace(cell))
-		// Support various header formats
-		switch {
-		case strings.Contains(normalized, "account") && strings.Contains(normalized, "name"):
-			colIdx["accountname"] = i
-		case normalized == "name" || normalized == "계정명" || normalized == "계정이름" || normalized == "계정 이름":
-			if colIdx["accountname"] == -1 {
-				colIdx["accountname"] = i
-			}
-		case strings.Contains(normalized, "access") && strings.Contains(normalized, "key"):
-			colIdx["accesskey"] = i
-		case strings.Contains(normalized, "secret") && strings.Contains(normalized, "key"):
-			colIdx["secretkey"] = i
-		case strings.Contains(normalized, "iam") || normalized == "id" || normalized == "아이디" || normalized == "loginid":
-			colIdx["iamusername"] = i
-		case normalized == "password" || normalized == "pw" || normalized == "비밀번호" || normalized == "비번":
-			colIdx["password"] = i
-		}
-	}
+	colIdx := detectColumns(header)
 
 	if colIdx["accesskey"] == -1 {
 		return nil, fmt.Errorf("column 'AccessKey' not found in header row")
@@ -127,4 +100,36 @@ func getCell(row []string, idx int) string {
 		return ""
 	}
 	return strings.TrimSpace(row[idx])
+}
+
+// detectColumns maps logical fields to their 0-based column index in the header
+// row, supporting several header spellings. A value of -1 means "not found".
+func detectColumns(header []string) map[string]int {
+	colIdx := map[string]int{
+		"accountname": -1,
+		"accesskey":   -1,
+		"secretkey":   -1,
+		"iamusername": -1,
+		"password":    -1,
+	}
+	for i, cell := range header {
+		normalized := strings.ToLower(strings.TrimSpace(cell))
+		switch {
+		case strings.Contains(normalized, "account") && strings.Contains(normalized, "name"):
+			colIdx["accountname"] = i
+		case normalized == "name" || normalized == "계정명" || normalized == "계정이름" || normalized == "계정 이름":
+			if colIdx["accountname"] == -1 {
+				colIdx["accountname"] = i
+			}
+		case strings.Contains(normalized, "access") && strings.Contains(normalized, "key"):
+			colIdx["accesskey"] = i
+		case strings.Contains(normalized, "secret") && strings.Contains(normalized, "key"):
+			colIdx["secretkey"] = i
+		case strings.Contains(normalized, "iam") || normalized == "id" || normalized == "아이디" || normalized == "loginid":
+			colIdx["iamusername"] = i
+		case normalized == "password" || normalized == "pw" || normalized == "비밀번호" || normalized == "비번":
+			colIdx["password"] = i
+		}
+	}
+	return colIdx
 }

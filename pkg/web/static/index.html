@@ -70,6 +70,23 @@
       </tr></thead>
       <tbody id="accts"><tr><td colspan="4" style="color:var(--muted)">불러오는 중...</td></tr></tbody>
     </table>
+
+    <details id="addPanel" style="margin-top:14px">
+      <summary style="cursor:pointer;color:var(--accent);font-size:13px">+ 계정 추가 (엑셀 파일에도 저장됨)</summary>
+      <div class="row">
+        <div class="field"><label>Account Name (선택)</label><input type="text" id="naAccount" placeholder="자동 생성"></div>
+        <div class="field"><label>IAM Username *</label><input type="text" id="naIam" placeholder="서브 계정 LoginId"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Access Key *</label><input type="text" id="naAccess"></div>
+        <div class="field"><label>Secret Key *</label><input type="password" id="naSecret"></div>
+        <div class="field"><label>Password (선택)</label><input type="text" id="naPassword" placeholder="활성화 시 비밀번호"></div>
+      </div>
+      <div class="run">
+        <button class="primary" id="addBtn">계정 추가</button>
+        <span class="hint" id="addHint"></span>
+      </div>
+    </details>
   </div>
 
   <div class="panel">
@@ -236,6 +253,45 @@ function appendLog(text) {
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+document.getElementById('addBtn').addEventListener('click', addAccount);
+
+async function addAccount() {
+  const btn = document.getElementById('addBtn');
+  const hint = document.getElementById('addHint');
+  const body = {
+    accountName: document.getElementById('naAccount').value.trim(),
+    iamUsername: document.getElementById('naIam').value.trim(),
+    accessKey: document.getElementById('naAccess').value.trim(),
+    secretKey: document.getElementById('naSecret').value.trim(),
+    password: document.getElementById('naPassword').value,
+  };
+  if (!body.accessKey || !body.secretKey || !body.iamUsername) {
+    hint.style.color = 'var(--danger)';
+    hint.textContent = 'Access Key, Secret Key, IAM Username은 필수입니다.';
+    return;
+  }
+  btn.disabled = true; hint.style.color = 'var(--muted)'; hint.textContent = '저장 중...';
+  try {
+    const res = await fetch('/api/accounts', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      hint.style.color = 'var(--danger)';
+      hint.textContent = '실패: ' + (await res.text());
+      return;
+    }
+    hint.style.color = 'var(--accent)';
+    hint.textContent = '추가됨 (엑셀 파일에 저장)';
+    ['naAccount','naIam','naAccess','naSecret','naPassword'].forEach(id => document.getElementById(id).value = '');
+    await loadAccounts();
+  } catch (e) {
+    hint.style.color = 'var(--danger)';
+    hint.textContent = '오류: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 loadAccounts();
 </script>

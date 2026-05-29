@@ -23,8 +23,9 @@ const confirmPhrase = "CONFIRM DELETE"
 // Server holds the loaded accounts and optional resource filter config.
 type Server struct {
 	accounts []ncp.RootAccount
+	filePath string
 	cfg      *config.Config
-	mu       sync.Mutex // serialize destructive runs
+	mu       sync.Mutex // serialize destructive runs and account mutations
 }
 
 // NewServer loads accounts from the given Excel file (and optional config JSON).
@@ -40,7 +41,7 @@ func NewServer(filePath, configPath string) (*Server, error) {
 			return nil, err
 		}
 	}
-	return &Server{accounts: accounts, cfg: cfg}, nil
+	return &Server{accounts: accounts, filePath: filePath, cfg: cfg}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -69,6 +70,19 @@ type accountDTO struct {
 }
 
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.listAccounts(w)
+	case http.MethodPost:
+		s.addAccount(w, r)
+	default:
+		http.Error(w, "GET 또는 POST만 지원", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) listAccounts(w http.ResponseWriter) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	out := make([]accountDTO, 0, len(s.accounts))
 	for i, a := range s.accounts {
 		out = append(out, accountDTO{
@@ -80,6 +94,60 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(out)
+}
+
+type newAccountRequest struct {
+	AccountName string `json:"accountName"`
+	AccessKey   string `json:"accessKey"`
+	SecretKey   string `json:"secretKey"`
+	IamUsername string `json:"iamUsername"`
+	Password    string `json:"password"`
+}
+
+// addAccount appends a new account to both the in-memory list and the Excel file.
+func (s *Server) addAccount(w http.ResponseWriter, r *http.Request) {
+	var req newAccountRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "잘못된 요청: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	acc := ncp.RootAccount{
+		AccountName: req.AccountName,
+		AccessKey:   req.AccessKey,
+		SecretKey:   req.SecretKey,
+		IamUsername: req.IamUsername,
+		Password:    req.Password,
+	}
+	if acc.AccessKey == "" || acc.SecretKey == "" {
+		http.Error(w, "AccessKey와 SecretKey는 필수입니다", http.StatusBadRequest)
+		return
+	}
+	if acc.IamUsername == "" {
+		http.Error(w, "IAM Username은 필수입니다", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if acc.AccountName == "" {
+		acc.AccountName = fmt.Sprintf("Account-%d", len(s.accounts)+1)
+	}
+
+	// Persist to the Excel file first; only update memory if the write succeeds.
+	if err := excel.AppendAccount(s.filePath, acc); err != nil {
+		http.Error(w, "엑셀 저장 실패: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.accounts = append(s.accounts, acc)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(accountDTO{
+		Index:       len(s.accounts) - 1,
+		AccountName: acc.AccountName,
+		IamUsername: acc.IamUsername,
+		AccessKey:   maskKey(acc.AccessKey),
+	})
 }
 
 type runRequest struct {
