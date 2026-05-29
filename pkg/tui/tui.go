@@ -487,6 +487,16 @@ func (m model) View() string {
 	return ""
 }
 
+// formatResourceErr classifies a resource-listing error. A 403 means the API
+// key lacks permission for that product (or the product is unused), which is
+// expected for many accounts, so it is shown as a benign skip rather than a warning.
+func formatResourceErr(e error) string {
+	if strings.Contains(e.Error(), "HTTP 403") {
+		return fmt.Sprintf("    [건너뜀] 권한 없음/미사용: %v", e)
+	}
+	return fmt.Sprintf("    [경고] 조회 오류: %v", e)
+}
+
 func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, action, globalPassword string, cleanup bool, cfg *config.Config, logFn func(string)) {
 	logFn("작업 시작...")
 
@@ -506,7 +516,7 @@ func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, 
 			logFn("  리소스 조회 중...")
 			summary, errs := client.ListAllResources()
 			for _, e := range errs {
-				logFn(fmt.Sprintf("    [경고] 조회 오류: %v", e))
+				logFn(formatResourceErr(e))
 			}
 			if cfg != nil {
 				applyFilter(summary, cfg)
@@ -527,7 +537,7 @@ func processSelectedAccounts(accounts []ncp.RootAccount, selected map[int]bool, 
 			logFn("  리소스 조회 중...")
 			summary, errs := client.ListAllResources()
 			for _, e := range errs {
-				logFn(fmt.Sprintf("    [경고] 조회 오류: %v", e))
+				logFn(formatResourceErr(e))
 			}
 
 			if cfg != nil {

@@ -249,10 +249,13 @@ func (c *Client) ListAllResources() (*ResourceSummary, []error) {
 	} else {
 		summary.BlockStorageSnapshots = snaps
 	}
-	if snaps, err := c.ListNasVolumeSnapshots(); err != nil {
-		errs = append(errs, fmt.Errorf("NAS 스냅샷 조회: %w", err))
-	} else {
-		summary.NasVolumeSnapshots = snaps
+	// NAS snapshots must be queried per volume (nasVolumeInstanceNo is required).
+	for _, vol := range summary.NasVolumes {
+		if snaps, err := c.ListNasVolumeSnapshots(vol.NasVolumeInstanceNo); err != nil {
+			errs = append(errs, fmt.Errorf("NAS 스냅샷 조회(%s): %w", vol.VolumeName, err))
+		} else {
+			summary.NasVolumeSnapshots = append(summary.NasVolumeSnapshots, snaps...)
+		}
 	}
 
 	// 3. Cloud DB (all types)

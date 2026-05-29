@@ -758,8 +758,13 @@ func (c *Client) DeleteBlockStorageSnapshotInstances(instanceNos []string) error
 
 // --- NAS Volume Snapshot APIs ---
 
-func (c *Client) ListNasVolumeSnapshots() ([]NasVolumeSnapshot, error) {
-	path := "/getNasVolumeSnapshotList?responseFormatType=json"
+// ListNasVolumeSnapshots lists snapshots for a single NAS volume.
+// The NCP VPC API requires nasVolumeInstanceNo, so snapshots cannot be listed globally.
+func (c *Client) ListNasVolumeSnapshots(nasVolumeInstanceNo string) ([]NasVolumeSnapshot, error) {
+	params := url.Values{}
+	params.Set("responseFormatType", "json")
+	params.Set("nasVolumeInstanceNo", nasVolumeInstanceNo)
+	path := "/getNasVolumeSnapshotList?" + params.Encode()
 	body, status, err := c.doRequestWithBase(VNASBaseURL, "GET", path, nil)
 	if err != nil {
 		return nil, err
