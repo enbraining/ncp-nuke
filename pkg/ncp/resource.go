@@ -36,6 +36,7 @@ type ResourceSummary struct {
 	InitScripts             []InitScript
 	LoginKeys               []LoginKey
 	PlacementGroups         []PlacementGroup
+	Buckets                 []Bucket
 }
 
 // TotalCount returns total number of resources.
@@ -49,7 +50,8 @@ func (r *ResourceSummary) TotalCount() int {
 		len(r.VpcPeerings) + len(r.NetworkAcls) + len(r.RouteTables) +
 		len(r.AccessControlGroups) + len(r.AutoScalingGroups) +
 		len(r.LaunchConfigurations) + len(r.NksClusters) +
-		len(r.InitScripts) + len(r.LoginKeys) + len(r.PlacementGroups)
+		len(r.InitScripts) + len(r.LoginKeys) + len(r.PlacementGroups) +
+		len(r.Buckets)
 }
 
 // ResourceCount is a single category's resource count for display.
@@ -89,6 +91,7 @@ func (r *ResourceSummary) Breakdown() []ResourceCount {
 		{"Init Script", len(r.InitScripts)},
 		{"Login Key", len(r.LoginKeys)},
 		{"Placement Group", len(r.PlacementGroups)},
+		{"Object Storage Bucket", len(r.Buckets)},
 	}
 	var out []ResourceCount
 	for _, c := range all {
@@ -368,6 +371,13 @@ func (c *Client) ListAllResources() (*ResourceSummary, []error) {
 		errs = append(errs, fmt.Errorf("Placement Group 조회: %w", err))
 	} else {
 		summary.PlacementGroups = pgs
+	}
+
+	// 9. Object Storage (S3 호환)
+	if buckets, err := c.ListBuckets(); err != nil {
+		errs = append(errs, fmt.Errorf("Object Storage 조회: %w", err))
+	} else {
+		summary.Buckets = buckets
 	}
 
 	return summary, errs
@@ -804,6 +814,18 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 	for _, pg := range summary.PlacementGroups {
 		logFn(fmt.Sprintf("  Placement Group 삭제: %s (%s)", pg.PlacementGroupName, pg.PlacementGroupNo))
 		if err := c.DeletePlacementGroup(pg.PlacementGroupNo); err != nil {
+			logFn(fmt.Sprintf("    [실패] %v", err))
+			fail++
+		} else {
+			logFn("    [성공]")
+			success++
+		}
+	}
+
+	// 23. Object Storage Buckets (객체 전부 비운 뒤 버킷 삭제, VPC와 독립)
+	for _, b := range summary.Buckets {
+		logFn(fmt.Sprintf("  Object Storage 버킷 비우기/삭제: %s", b.Name))
+		if err := c.DeleteBucket(b.Name, logFn); err != nil {
 			logFn(fmt.Sprintf("    [실패] %v", err))
 			fail++
 		} else {

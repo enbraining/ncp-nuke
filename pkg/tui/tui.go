@@ -487,12 +487,16 @@ func (m model) View() string {
 	return ""
 }
 
-// formatResourceErr classifies a resource-listing error. A 403 means the API
-// key lacks permission for that product (or the product is unused), which is
-// expected for many accounts, so it is shown as a benign skip rather than a warning.
+// formatResourceErr classifies a resource-listing error. A 403 / access-key
+// rejection means the API key lacks permission for that product (or the product
+// is unused / not enabled), which is expected for many accounts, so it is shown
+// as a benign skip rather than a warning.
 func formatResourceErr(e error) string {
-	if strings.Contains(e.Error(), "HTTP 403") {
-		return fmt.Sprintf("    [건너뜀] 권한 없음/미사용: %v", e)
+	msg := e.Error()
+	for _, sig := range []string{"HTTP 403", "StatusCode: 403", "AccessDenied", "InvalidAccessKeyId"} {
+		if strings.Contains(msg, sig) {
+			return fmt.Sprintf("    [건너뜀] 권한 없음/미사용: %v", e)
+		}
 	}
 	return fmt.Sprintf("    [경고] 조회 오류: %v", e)
 }
@@ -862,4 +866,12 @@ func applyFilter(summary *ncp.ResourceSummary, cfg *config.Config) {
 		}
 	}
 	summary.PlacementGroups = placementGroups
+
+	var buckets []ncp.Bucket
+	for _, s := range summary.Buckets {
+		if cfg.Buckets.Match(s.Name, s.Name) {
+			buckets = append(buckets, s)
+		}
+	}
+	summary.Buckets = buckets
 }

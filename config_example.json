@@ -42,5 +42,8 @@
   },
   "init_scripts": {},
   "login_keys": {},
-  "placement_groups": {}
+  "placement_groups": {},
+  "buckets": {
+    "exclude": ["my-important-bucket"]
+  }
 }

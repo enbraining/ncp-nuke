@@ -82,6 +82,7 @@ type Config struct {
 	InitScripts           ResourceFilter `json:"init_scripts"`
 	LoginKeys             ResourceFilter `json:"login_keys"`
 	PlacementGroups       ResourceFilter `json:"placement_groups"`
+	Buckets               ResourceFilter `json:"buckets"`
 }
 
 func LoadConfig(path string) (*Config, error) {
