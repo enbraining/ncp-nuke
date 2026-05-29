@@ -234,13 +234,52 @@ func (c *Client) ListRouteTables() ([]RouteTable, error) {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("parsing response: %w", err)
 	}
-	return resp.Response.RouteTableList, nil
+
+	// getRouteTableList does not include the routes themselves; fetch them per table
+	// so that NAT/Peering routes can be removed before deleting their targets.
+	tables := resp.Response.RouteTableList
+	for i := range tables {
+		routes, err := c.ListRoutes(tables[i].VpcNo, tables[i].RouteTableNo)
+		if err != nil {
+			continue // best-effort: leave RouteList empty on failure
+		}
+		tables[i].RouteList = routes
+	}
+	return tables, nil
+}
+
+// ListRoutes returns the routes within a route table.
+// The NCP VPC getRouteList API requires both vpcNo and routeTableNo.
+func (c *Client) ListRoutes(vpcNo, routeTableNo string) ([]Route, error) {
+	params := url.Values{}
+	params.Set("responseFormatType", "json")
+	params.Set("vpcNo", vpcNo)
+	params.Set("routeTableNo", routeTableNo)
+	path := "/getRouteList?" + params.Encode()
+	body, status, err := c.doRequestWithBase(VVPCBaseURL, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != 200 {
+		return nil, fmt.Errorf("HTTP %d - %s", status, string(body))
+	}
+	var resp struct {
+		Response struct {
+			RouteList []Route `json:"routeList"`
+		} `json:"getRouteListResponse"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+	return resp.Response.RouteList, nil
 }
 
 // RemoveRoute removes a specific route from a route table.
-func (c *Client) RemoveRoute(routeTableNo string, route Route) error {
+// The NCP VPC removeRoute API requires vpcNo in addition to routeTableNo.
+func (c *Client) RemoveRoute(vpcNo, routeTableNo string, route Route) error {
 	params := url.Values{}
 	params.Set("responseFormatType", "json")
+	params.Set("vpcNo", vpcNo)
 	params.Set("routeTableNo", routeTableNo)
 	params.Set("routeList.1.destinationCidrBlock", route.DestinationCidrBlock)
 	params.Set("routeList.1.targetTypeCode", route.TargetTypeCode.Code)

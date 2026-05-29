@@ -636,7 +636,7 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 				if route.TargetTypeCode.Code == "NATGW" || route.TargetTypeCode.Code == "VPCPEERING" {
 					routesToDelete++
 					logFn(fmt.Sprintf("    경로 삭제: Table %s -> %s (Target: %s)", rt.RouteTableName, route.DestinationCidrBlock, route.TargetTypeCode.Code))
-					if err := c.RemoveRoute(rt.RouteTableNo, route); err != nil {
+					if err := c.RemoveRoute(rt.VpcNo, rt.RouteTableNo, route); err != nil {
 						logFn(fmt.Sprintf("      [실패] %v", err))
 					} else {
 						logFn("      [성공]")
