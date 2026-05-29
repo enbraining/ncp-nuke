@@ -209,10 +209,13 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Each runner log line is turned into a structured event. The hierarchy is
-	// derived from leading-space depth: depth 0 = global, 1 = section, 2+ = detail.
+	// Each runner log line becomes a structured event. Lines are grouped by the
+	// resource they refer to (Server, NAT Gateway, ...) rather than by step. The
+	// resource is detected from keywords; lines without a keyword stick to the
+	// most recently seen resource. "currentResource" carries that state.
+	currentResource := ""
 	send := func(line string) {
-		ev := classifyLine(line)
+		ev := classifyLine(line, &currentResource)
 		if ev.Text == "" {
 			return
 		}
@@ -227,30 +230,109 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 }
 
 type progressEvent struct {
-	Type   string `json:"type"`   // account | global | section | detail
-	Text   string `json:"text"`
-	Depth  int    `json:"depth"`
-	Status string `json:"status"` // ok | fail | skip | info
+	Type     string `json:"type"`     // account | global | resource
+	Text     string `json:"text"`
+	Resource string `json:"resource"` // section title for type=resource
+	Depth    int    `json:"depth"`
+	Status   string `json:"status"` // ok | fail | skip | info
 }
 
-func classifyLine(line string) progressEvent {
+func classifyLine(line string, currentResource *string) progressEvent {
 	trimmedLeft := strings.TrimLeft(line, "\n")
 	leading := len(trimmedLeft) - len(strings.TrimLeft(trimmedLeft, " "))
 	depth := leading / 2
 	text := strings.TrimSpace(line)
 
 	ev := progressEvent{Text: text, Depth: depth, Status: classifyStatus(text)}
-	switch {
-	case strings.HasPrefix(text, "[루트 계정"):
+
+	if strings.HasPrefix(text, "[루트 계정") {
 		ev.Type = "account"
-	case depth <= 0:
-		ev.Type = "global"
-	case depth == 1:
-		ev.Type = "section"
-	default:
-		ev.Type = "detail"
+		*currentResource = ""
+		return ev
 	}
+
+	if res := detectResource(text); res != "" {
+		*currentResource = res
+		ev.Type = "resource"
+		ev.Resource = res
+		return ev
+	}
+
+	// No resource keyword: a deeper-indented line belongs to the current resource;
+	// a top-level phase line (e.g. "리소스 조회 중", "총 N개 ... 시작") is global.
+	if depth >= 2 && *currentResource != "" {
+		ev.Type = "resource"
+		ev.Resource = *currentResource
+		return ev
+	}
+
+	ev.Type = "global"
+	*currentResource = ""
 	return ev
+}
+
+// detectResource maps a log line to a resource category by keyword. Order
+// matters: more specific keywords are checked before broader ones.
+func detectResource(t string) string {
+	switch {
+	case strings.Contains(t, "Object Storage") || strings.Contains(t, "버킷"):
+		return "Object Storage"
+	case strings.Contains(t, "NKS"):
+		return "NKS Cluster"
+	case strings.Contains(t, "Auto Scaling"):
+		return "Auto Scaling Group"
+	case strings.Contains(t, "Launch Configuration"):
+		return "Launch Configuration"
+	case strings.Contains(t, "PostgreSQL") || strings.Contains(t, "(Pg)"):
+		return "Cloud PostgreSQL"
+	case strings.Contains(t, "MongoDB") || strings.Contains(t, "(Mongo)"):
+		return "Cloud MongoDB"
+	case strings.Contains(t, "MariaDB"):
+		return "Cloud MariaDB"
+	case strings.Contains(t, "MySQL"):
+		return "Cloud MySQL"
+	case strings.Contains(t, "Redis"):
+		return "Cloud Redis"
+	case strings.Contains(t, "Cloud DB"):
+		return "Cloud DB"
+	case strings.Contains(t, "Load Balancer") || strings.Contains(t, "로드밸런서"):
+		return "Load Balancer"
+	case strings.Contains(t, "Target Group"):
+		return "Target Group"
+	case strings.Contains(t, "NAS 스냅샷") || strings.Contains(t, "NAS Volume Snapshot"):
+		return "NAS Snapshot"
+	case strings.Contains(t, "NAS"):
+		return "NAS Volume"
+	case strings.Contains(t, "Block Storage") || strings.Contains(t, "블록 스토리지") || strings.Contains(t, "스토리지"):
+		return "Block Storage"
+	case strings.Contains(t, "서버"):
+		return "Server"
+	case strings.Contains(t, "Route Table") || strings.Contains(t, "경로"):
+		return "Route Table"
+	case strings.Contains(t, "VPC Peering"):
+		return "VPC Peering"
+	case strings.Contains(t, "NAT Gateway"):
+		return "NAT Gateway"
+	case strings.Contains(t, "공인 IP") || strings.Contains(t, "Public IP"):
+		return "Public IP"
+	case strings.Contains(t, "ACG") || strings.Contains(t, "Access Control"):
+		return "Access Control Group"
+	case strings.Contains(t, "Network ACL"):
+		return "Network ACL"
+	case strings.Contains(t, "Subnet"):
+		return "Subnet"
+	case strings.Contains(t, "VPC"):
+		return "VPC"
+	case strings.Contains(t, "Init Script"):
+		return "Init Script"
+	case strings.Contains(t, "Login Key"):
+		return "Login Key"
+	case strings.Contains(t, "Placement Group"):
+		return "Placement Group"
+	case strings.Contains(t, "서브 계정") || strings.Contains(t, "서브계정"):
+		return "Sub Account"
+	}
+	return ""
 }
 
 func classifyStatus(t string) string {

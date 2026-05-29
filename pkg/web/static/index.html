@@ -66,6 +66,19 @@
   .log-ok { color: var(--accent); }
   .log-skip { color: var(--muted); }
   .log-info { color: var(--text); }
+  /* resource summary (list view) */
+  .res-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; padding: 14px; }
+  .res-chip { display: flex; align-items: center; gap: 12px; background: #11161d; border: 1px solid var(--border);
+    border-radius: 10px; padding: 13px 15px; }
+  .res-chip .ic { font-size: 22px; line-height: 1; }
+  .res-chip .nm { flex: 1; font-size: 13.5px; }
+  .res-chip .ct { font-size: 17px; font-weight: 700; color: var(--accent); }
+  .res-chip .unit { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 2px; }
+  .res-empty { padding: 26px; text-align: center; color: var(--muted); font-size: 14px; }
+  .res-total { padding: 12px 14px 0; color: var(--muted); font-size: 12.5px; }
+  .scan-note { padding: 4px 14px 14px; }
+  .scan-note summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+  .scan-note .dline { font-size: 11.5px; padding-top: 4px; }
   .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
   .checkbox-cell { width: 40px; text-align: center; }
   .confirm-box { margin-top: 12px; padding: 12px; border: 1px solid var(--danger);
@@ -221,13 +234,48 @@ function updateRun() {
 
 document.getElementById('runBtn').addEventListener('click', run);
 
-// Rendering context for the structured progress tree.
-const view = { log: null, card: null, section: null, sectionCount: 0 };
+// Friendly Korean labels + icons per resource category.
+const RES_META = {
+  'Server': {ko:'서버', icon:'🖥️'},
+  'Block Storage': {ko:'블록 스토리지', icon:'💽'},
+  'Block Storage Snapshot': {ko:'블록 스토리지 스냅샷', icon:'📸'},
+  'Public IP': {ko:'공인 IP', icon:'🌐'},
+  'NAS Volume': {ko:'NAS 볼륨', icon:'🗄️'},
+  'NAS Snapshot': {ko:'NAS 스냅샷', icon:'📸'},
+  'Load Balancer': {ko:'로드밸런서', icon:'⚖️'},
+  'Target Group': {ko:'타깃 그룹', icon:'🎯'},
+  'Cloud DB': {ko:'Cloud DB', icon:'🛢️'},
+  'Cloud PostgreSQL': {ko:'PostgreSQL', icon:'🐘'},
+  'Cloud MongoDB': {ko:'MongoDB', icon:'🍃'},
+  'Cloud MariaDB': {ko:'MariaDB', icon:'🛢️'},
+  'Cloud MySQL': {ko:'MySQL', icon:'🐬'},
+  'Cloud Redis': {ko:'Redis', icon:'🧊'},
+  'VPC': {ko:'VPC', icon:'🧩'},
+  'Subnet': {ko:'서브넷', icon:'🔲'},
+  'NAT Gateway': {ko:'NAT 게이트웨이', icon:'🚪'},
+  'VPC Peering': {ko:'VPC 피어링', icon:'🔗'},
+  'Network ACL': {ko:'네트워크 ACL', icon:'🛡️'},
+  'Route Table': {ko:'라우트 테이블', icon:'🧭'},
+  'Access Control Group': {ko:'접근 제어 그룹(ACG)', icon:'🔐'},
+  'Auto Scaling Group': {ko:'오토 스케일링 그룹', icon:'📈'},
+  'Launch Configuration': {ko:'런치 설정', icon:'🚀'},
+  'NKS Cluster': {ko:'쿠버네티스(NKS)', icon:'☸️'},
+  'Init Script': {ko:'Init 스크립트', icon:'📜'},
+  'Login Key': {ko:'로그인 키', icon:'🔑'},
+  'Placement Group': {ko:'물리 배치 그룹', icon:'🧱'},
+  'Object Storage': {ko:'오브젝트 스토리지', icon:'📦'},
+  'Sub Account': {ko:'서브 계정', icon:'👤'},
+};
+function resMeta(key) { return RES_META[key] || {ko: key, icon: '•'}; }
+
+// Rendering context. Sections are grouped by resource per account card.
+const view = { log: null, card: null, sections: null, sectionCount: 0, listMode: false };
 
 function resetLog() {
   const log = document.getElementById('log');
   log.innerHTML = '';
-  view.log = log; view.card = null; view.section = null; view.sectionCount = 0;
+  view.log = log; view.card = null; view.sections = null; view.sectionCount = 0;
+  view.listMode = state.action === 'list';
 }
 
 async function run() {
@@ -283,27 +331,18 @@ function handleEvent(ev) {
     card.className = 'acct-card';
     card.innerHTML = `<div class="acct-head">🗂 ${esc(name)}</div>`;
     log.appendChild(card);
-    view.card = card; view.section = null; view.sectionCount = 0;
-  } else if (ev.type === 'section') {
-    view.sectionCount++;
-    const sec = document.createElement('details');
-    sec.className = 'section'; sec.open = true;
-    const badgeCls = ev.status === 'fail' ? 'fail' : (ev.status === 'ok' ? 'ok' : '');
-    sec.innerHTML = `<summary><span class="sec-num">${view.sectionCount}.</span>` +
-      `<span class="sec-title ${statusClass(ev.status)}">${esc(ev.text)}</span>` +
-      `<span class="sec-badge ${badgeCls}" style="display:none"></span></summary>` +
-      `<div class="details"></div>`;
-    (view.card || log).appendChild(sec);
-    view.section = sec;
-  } else if (ev.type === 'detail') {
-    const target = view.section ? view.section.querySelector('.details') : (view.card || log);
+    view.card = card; view.sections = {}; view.sectionCount = 0;
+  } else if (view.listMode) {
+    handleListEvent(ev);
+  } else if (ev.type === 'resource') {
+    const sec = sectionFor(ev.resource, log);
     const d = document.createElement('div');
     d.className = 'dline ' + statusClass(ev.status);
-    d.style.paddingLeft = Math.max(0, (ev.depth - 2)) * 14 + 'px';
+    d.style.paddingLeft = Math.max(0, (ev.depth - 1)) * 14 + 'px';
     d.textContent = ev.text;
-    target.appendChild(d);
-    // reflect failures on the section badge
-    if (view.section && ev.status === 'fail') markSection(view.section, 'fail', '실패');
+    sec.querySelector('.details').appendChild(d);
+    if (ev.status === 'fail') markSection(sec, 'fail', '실패');
+    else if (ev.status === 'ok' && !sec.dataset.fail) markSection(sec, 'ok', '완료');
   } else { // global
     const g = document.createElement('div');
     g.className = 'global-line ' + statusClass(ev.status);
@@ -313,7 +352,79 @@ function handleEvent(ev) {
   log.scrollTop = log.scrollHeight;
 }
 
+// List view: render a friendly grid of resource counts; tuck scan warnings away.
+function handleListEvent(ev) {
+  const card = view.card || view.log;
+  if (ev.type === 'resource') {
+    const m = ev.text.match(/:\s*([\d,]+)\s*개/);
+    if (m) {
+      addResChip(card, ev.resource, m[1]);
+    } else if (ev.status === 'skip' || ev.status === 'fail') {
+      addScanNote(card, ev.text);
+    }
+  } else if (ev.text.includes('리소스 없음')) {
+    markEmpty(card);
+  }
+}
+
+function gridOf(card) {
+  let g = card.querySelector('.res-grid');
+  if (!g) { g = document.createElement('div'); g.className = 'res-grid'; card.appendChild(g); }
+  return g;
+}
+
+function addResChip(card, resource, count) {
+  const empty = card.querySelector('.res-empty'); if (empty) empty.remove();
+  const meta = resMeta(resource);
+  const chip = document.createElement('div');
+  chip.className = 'res-chip';
+  chip.innerHTML = `<span class="ic">${meta.icon}</span><span class="nm">${esc(meta.ko)}</span>` +
+    `<span class="ct">${esc(count)}<span class="unit">개</span></span>`;
+  gridOf(card).appendChild(chip);
+}
+
+function markEmpty(card) {
+  if (card.querySelector('.res-grid') || card.querySelector('.res-empty')) return;
+  const e = document.createElement('div');
+  e.className = 'res-empty';
+  e.textContent = '🎉 삭제할 리소스가 없습니다.';
+  card.appendChild(e);
+}
+
+function addScanNote(card, text) {
+  let note = card.querySelector('.scan-note');
+  if (!note) {
+    note = document.createElement('div');
+    note.className = 'scan-note';
+    note.innerHTML = '<details><summary>조회 참고 (권한 없음/미사용 항목)</summary><div class="body"></div></details>';
+    card.appendChild(note);
+  }
+  const d = document.createElement('div');
+  d.className = 'dline log-skip';
+  d.textContent = text;
+  note.querySelector('.body').appendChild(d);
+}
+
+// sectionFor returns the resource section in the current card, creating it
+// (numbered, collapsible) on first use so all lines for a resource group together.
+function sectionFor(resource, log) {
+  if (!view.sections) { view.sections = {}; }
+  if (view.sections[resource]) return view.sections[resource];
+  view.sectionCount++;
+  const meta = resMeta(resource);
+  const sec = document.createElement('details');
+  sec.className = 'section'; sec.open = true;
+  sec.innerHTML = `<summary><span class="sec-num">${view.sectionCount}.</span>` +
+    `<span class="sec-title">${meta.icon} ${esc(meta.ko)}</span>` +
+    `<span class="sec-badge" style="display:none"></span></summary>` +
+    `<div class="details"></div>`;
+  (view.card || log).appendChild(sec);
+  view.sections[resource] = sec;
+  return sec;
+}
+
 function markSection(sec, cls, label) {
+  if (cls === 'fail') sec.dataset.fail = '1';
   const b = sec.querySelector('.sec-badge');
   if (!b) return;
   b.className = 'sec-badge ' + cls; b.textContent = label; b.style.display = '';
