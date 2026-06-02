@@ -103,6 +103,105 @@ func (r *ResourceSummary) Breakdown() []ResourceCount {
 	return out
 }
 
+// ResourceItem is a single resource's display identity (name + id).
+type ResourceItem struct {
+	Name string
+	ID   string
+}
+
+// Items returns the individual resources per category (keyed by the same names
+// as Breakdown), for showing a detailed per-resource list.
+func (r *ResourceSummary) Items() map[string][]ResourceItem {
+	m := map[string][]ResourceItem{}
+	add := func(key, name, id string) { m[key] = append(m[key], ResourceItem{Name: name, ID: id}) }
+
+	for _, x := range r.Servers {
+		add("Server", x.ServerName, x.ServerInstanceNo)
+	}
+	for _, x := range r.BlockStorages {
+		add("Block Storage", x.BlockStorageName, x.BlockStorageInstanceNo)
+	}
+	for _, x := range r.BlockStorageSnapshots {
+		add("Block Storage Snapshot", x.BlockStorageSnapshotName, x.BlockStorageSnapshotInstanceNo)
+	}
+	for _, x := range r.PublicIps {
+		add("Public IP", x.PublicIp, x.PublicIpInstanceNo)
+	}
+	for _, x := range r.NasVolumes {
+		add("NAS Volume", x.VolumeName, x.NasVolumeInstanceNo)
+	}
+	for _, x := range r.NasVolumeSnapshots {
+		add("NAS Volume Snapshot", x.NasVolumeSnapshotName, x.NasVolumeSnapshotInstanceNo)
+	}
+	for _, x := range r.LoadBalancers {
+		add("Load Balancer", x.LoadBalancerName, x.LoadBalancerInstanceNo)
+	}
+	for _, x := range r.TargetGroups {
+		add("Target Group", x.TargetGroupName, x.TargetGroupNo)
+	}
+	for _, x := range r.CloudDBs {
+		add("Cloud DB", x.CloudDBServiceName, x.CloudDBInstanceNo)
+	}
+	for _, x := range r.CloudPostgresqls {
+		add("Cloud PostgreSQL", x.CloudPostgresqlServiceName, x.CloudPostgresqlInstanceNo)
+	}
+	for _, x := range r.CloudMongoDBs {
+		add("Cloud MongoDB", x.CloudMongoDbServiceName, x.CloudMongoDbInstanceNo)
+	}
+	for _, x := range r.CloudMariaDBs {
+		add("Cloud MariaDB", x.CloudMariaDbServiceName, x.CloudMariaDbInstanceNo)
+	}
+	for _, x := range r.CloudMySQLs {
+		add("Cloud MySQL", x.CloudMysqlServiceName, x.CloudMysqlInstanceNo)
+	}
+	for _, x := range r.CloudRedises {
+		add("Cloud Redis", x.CloudRedisServiceName, x.CloudRedisInstanceNo)
+	}
+	for _, x := range r.Vpcs {
+		add("VPC", x.VpcName, x.VpcNo)
+	}
+	for _, x := range r.Subnets {
+		add("Subnet", x.SubnetName, x.SubnetNo)
+	}
+	for _, x := range r.NatGateways {
+		add("NAT Gateway", x.NatGatewayName, x.NatGatewayInstanceNo)
+	}
+	for _, x := range r.VpcPeerings {
+		add("VPC Peering", x.VpcPeeringName, x.VpcPeeringInstanceNo)
+	}
+	for _, x := range r.NetworkAcls {
+		add("Network ACL", x.NetworkAclName, x.NetworkAclNo)
+	}
+	for _, x := range r.RouteTables {
+		add("Route Table", x.RouteTableName, x.RouteTableNo)
+	}
+	for _, x := range r.AccessControlGroups {
+		add("Access Control Group", x.AccessControlGroupName, x.AccessControlGroupNo)
+	}
+	for _, x := range r.AutoScalingGroups {
+		add("Auto Scaling Group", x.AutoScalingGroupName, x.AutoScalingGroupNo)
+	}
+	for _, x := range r.LaunchConfigurations {
+		add("Launch Configuration", x.LaunchConfigurationName, x.LaunchConfigurationNo)
+	}
+	for _, x := range r.NksClusters {
+		add("NKS Cluster", x.Name, x.Uuid)
+	}
+	for _, x := range r.InitScripts {
+		add("Init Script", x.InitScriptName, x.InitScriptNo)
+	}
+	for _, x := range r.LoginKeys {
+		add("Login Key", x.KeyName, "")
+	}
+	for _, x := range r.PlacementGroups {
+		add("Placement Group", x.PlacementGroupName, x.PlacementGroupNo)
+	}
+	for _, x := range r.Buckets {
+		add("Object Storage Bucket", x.Name, "")
+	}
+	return m
+}
+
 // --- List APIs ---
 
 func (c *Client) ListServers() ([]ServerInstance, error) {

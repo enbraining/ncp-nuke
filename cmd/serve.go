@@ -18,9 +18,7 @@ var serveCmd = &cobra.Command{
 엑셀 파일의 루트 계정 목록을 불러와 계정 선택/활성화/비활성화/리소스 삭제/조회를
 브라우저에서 수행할 수 있습니다.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if filePath == "" {
-			return fmt.Errorf("엑셀 파일 경로가 지정되지 않았습니다. -f 또는 --file 플래그를 사용하세요")
-		}
+		// -f 는 선택사항입니다. 미지정 시 브라우저에서 엑셀을 업로드해 계정을 불러옵니다.
 		srv, err := web.NewServer(filePath, configPath)
 		if err != nil {
 			return err

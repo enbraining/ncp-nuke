@@ -4,474 +4,658 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NCP Nuke</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
 <style>
   :root {
-    --bg: #0f1419; --panel: #1a2029; --border: #2a3340; --text: #e6e6e6;
-    --muted: #8a94a3; --accent: #04b575; --danger: #ff4d4f; --danger-bg: #2a1416;
+    --bg:#0f1419; --panel:#1a2029; --border:#2a3340; --text:#e6e6e6;
+    --muted:#8a94a3; --accent:#04b575; --danger:#ff4d4f; --danger-bg:#2a1416;
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple SD Gothic Neo", sans-serif; }
-  header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
-  header h1 { font-size: 18px; margin: 0; }
-  header .badge { color: var(--muted); font-size: 13px; }
-  main { max-width: 1100px; margin: 0 auto; padding: 24px; display: grid; gap: 20px; }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
-  .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 500; }
-  tr:last-child td { border-bottom: none; }
-  .actions { display: flex; flex-wrap: wrap; gap: 10px; }
-  .action-btn { flex: 1 1 200px; padding: 14px; border-radius: 8px; border: 1px solid var(--border);
-    background: #11161d; color: var(--text); cursor: pointer; font-size: 14px; text-align: left; transition: .12s; }
-  .action-btn:hover { border-color: var(--accent); }
-  .action-btn.selected { border-color: var(--accent); background: #0e1f1a; }
-  .action-btn.danger.selected { border-color: var(--danger); background: var(--danger-bg); }
-  .action-btn small { display: block; color: var(--muted); margin-top: 4px; font-size: 12px; }
-  label.opt { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
-  input[type=text], input[type=password] { background: #11161d; border: 1px solid var(--border);
-    color: var(--text); padding: 9px 11px; border-radius: 7px; font-size: 14px; width: 100%; }
-  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-top: 12px; }
-  .field { flex: 1 1 240px; }
-  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
-  .run { margin-top: 16px; display: flex; gap: 12px; align-items: center; }
-  button.primary { background: var(--accent); color: #052b1f; border: none; padding: 11px 22px;
-    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
-  button.primary.danger { background: var(--danger); color: #fff; }
-  button.primary:disabled { opacity: .5; cursor: not-allowed; }
-  #log { background: #0a0e12; border: 1px solid var(--border); border-radius: 8px; padding: 14px;
-    font-size: 13px; line-height: 1.5; height: 420px; overflow-y: auto; }
-  #log .placeholder { color: var(--muted); font-size: 13px; }
-  .acct-card { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
-  .acct-head { background: #141b24; padding: 9px 12px; font-weight: 600; color: #6cb6ff;
-    border-bottom: 1px solid var(--border); font-size: 13px; }
-  .global-line { color: var(--muted); font-size: 12.5px; padding: 4px 2px; }
-  .section { border-top: 1px solid #1c242e; }
-  .section:first-child { border-top: none; }
-  .section > summary { list-style: none; cursor: pointer; padding: 9px 12px; display: flex;
-    align-items: center; gap: 8px; font-size: 13px; }
-  .section > summary::-webkit-details-marker { display: none; }
-  .section > summary::before { content: "▸"; color: var(--muted); font-size: 11px; transition: .12s; }
-  .section[open] > summary::before { transform: rotate(90deg); }
-  .section .sec-num { color: var(--accent); font-weight: 600; min-width: 20px; }
-  .section .sec-title { flex: 1; }
-  .section .sec-badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #1c242e; color: var(--muted); }
-  .section .sec-badge.fail { background: var(--danger-bg); color: var(--danger); }
-  .section .sec-badge.ok { background: #0e1f1a; color: var(--accent); }
-  .details { padding: 2px 12px 10px 40px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px; line-height: 1.55; }
-  .details .dline { white-space: pre-wrap; word-break: break-word; }
-  .log-fail { color: var(--danger); }
-  .log-ok { color: var(--accent); }
-  .log-skip { color: var(--muted); }
-  .log-info { color: var(--text); }
-  /* resource summary (list view) */
-  .res-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; padding: 14px; }
-  .res-chip { display: flex; align-items: center; gap: 12px; background: #11161d; border: 1px solid var(--border);
-    border-radius: 10px; padding: 13px 15px; }
-  .res-chip .ic { font-size: 22px; line-height: 1; }
-  .res-chip .nm { flex: 1; font-size: 13.5px; }
-  .res-chip .ct { font-size: 17px; font-weight: 700; color: var(--accent); }
-  .res-chip .unit { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 2px; }
-  .res-empty { padding: 26px; text-align: center; color: var(--muted); font-size: 14px; }
-  .res-total { padding: 12px 14px 0; color: var(--muted); font-size: 12.5px; }
-  .scan-note { padding: 4px 14px 14px; }
-  .scan-note summary { color: var(--muted); font-size: 12px; cursor: pointer; }
-  .scan-note .dline { font-size: 11.5px; padding-top: 4px; }
-  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
-  .checkbox-cell { width: 40px; text-align: center; }
-  .confirm-box { margin-top: 12px; padding: 12px; border: 1px solid var(--danger);
-    background: var(--danger-bg); border-radius: 8px; display: none; }
-  .confirm-box.show { display: block; }
-  .confirm-box strong { color: var(--danger); }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo",sans-serif; }
+  .ti { font-size:1em; line-height:1; vertical-align:-0.125em; }
+  header { padding:16px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+  header h1 { font-size:18px; margin:0; display:flex; align-items:center; gap:8px; }
+  header .badge { color:var(--muted); font-size:13px; }
+  main { max-width:1080px; margin:0 auto; padding:24px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px; }
+  h2.sect { font-size:14px; margin:0 0 14px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .lead-p { color:var(--muted); font-size:13px; margin:0 0 14px; }
+
+  .topbar { margin-bottom:14px; }
+  .linkbtn { background:none; border:none; color:var(--muted); font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+  .linkbtn:hover { color:var(--text); }
+
+  /* mode select */
+  .mode-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+  .mode-card { border:1px solid var(--border); border-radius:12px; padding:24px; cursor:pointer; transition:.13s; background:#11161d; }
+  .mode-card:hover { transform:translateY(-2px); border-color:var(--accent); }
+  .mode-card.danger:hover { border-color:var(--danger); }
+  .mode-card > .ti { font-size:30px; color:var(--accent); }
+  .mode-card.danger > .ti { color:var(--danger); }
+  .mode-card .t { font-size:17px; font-weight:600; margin:12px 0 6px; }
+  .mode-card .d { font-size:13px; color:var(--muted); line-height:1.5; }
+
+  /* stepper */
+  .stepper { display:flex; align-items:flex-start; justify-content:center; margin:6px 0 26px; }
+  .step { display:flex; flex-direction:column; align-items:center; gap:7px; width:130px; }
+  .step .circle { width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    border:2px solid var(--border); color:var(--muted); background:var(--panel); font-weight:600; font-size:15px; transition:.15s; }
+  .step.active .circle { border-color:var(--accent); color:var(--accent); box-shadow:0 0 0 4px rgba(4,181,117,.12); }
+  .step.done .circle { border-color:var(--accent); background:var(--accent); color:#052b1f; }
+  .step .label { font-size:12.5px; color:var(--muted); text-align:center; }
+  .step.active .label,.step.done .label { color:var(--text); }
+  .bar { flex:0 0 70px; height:2px; background:var(--border); margin-top:17px; transition:.15s; }
+  .bar.done { background:var(--accent); }
+
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th,td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-weight:500; }
+  tr:last-child td { border-bottom:none; }
+  .checkbox-cell { width:42px; text-align:center; }
+
+  input[type=text],input[type=password] { background:#11161d; border:1px solid var(--border); color:var(--text);
+    padding:9px 11px; border-radius:7px; font-size:14px; width:100%; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; margin-top:12px; }
+  .field { flex:1 1 240px; } .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:5px; }
+
+  .btns { display:flex; gap:10px; align-items:center; margin-top:20px; }
+  .btns .spacer { flex:1; }
+  button { font-family:inherit; cursor:pointer; border-radius:8px; font-size:14px; }
+  button.primary { background:var(--accent); color:#052b1f; border:none; padding:11px 22px; font-weight:600; }
+  button.primary.danger { background:var(--danger); color:#fff; }
+  button.ghost { background:transparent; color:var(--text); border:1px solid var(--border); padding:11px 18px; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .hint { color:var(--muted); font-size:12.5px; }
+
+  /* resource select grid */
+  .rsel-allbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;
+    padding:12px 16px; border:1.5px solid var(--danger); border-radius:10px; background:transparent; }
+  .rsel-allbar .lead { display:flex; align-items:center; gap:9px; font-size:13.5px; font-weight:600; color:var(--danger); }
+  .rsel-allbar .lead .ti { font-size:19px; }
+  .all-toggle { display:inline-flex; align-items:center; gap:8px; cursor:pointer; border-radius:8px;
+    padding:8px 16px; font-size:13px; font-weight:600; background:var(--danger-bg); color:var(--danger); border:1px solid var(--danger); }
+  .rsel-allbar.checked { background:var(--danger-bg); }
+  .rsel-allbar.checked .all-toggle { background:var(--danger); color:#fff; }
+  .rsel-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+  .rsel { display:flex; align-items:center; gap:12px; padding:14px; border:1px solid var(--border);
+    border-radius:10px; background:#11161d; cursor:pointer; user-select:none; transition:.12s; }
+  .rsel:hover { border-color:#3a4656; }
+  .rsel.checked { border-color:var(--accent); background:#0e1f1a; }
+  .rsel .ic { font-size:22px; color:var(--muted); }
+  .rsel.checked .ic { color:var(--accent); }
+  .rsel .nm { flex:1; font-size:13.5px; }
+  .rsel .ct { font-weight:700; color:var(--accent); font-size:15px; }
+  .rsel .ct .u { font-size:11px; color:var(--muted); font-weight:400; }
+  .rsel .chk { width:18px; height:18px; border-radius:5px; border:2px solid var(--border); display:flex;
+    align-items:center; justify-content:center; color:transparent; font-size:12px; }
+  .rsel.checked .chk { background:var(--accent); border-color:var(--accent); color:#052b1f; }
+  .rsel .detail-btn { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:17px; padding:2px 4px; border-radius:6px; }
+  .rsel .detail-btn:hover { color:var(--text); background:#1c242e; }
+
+  /* modal */
+  .modal-overlay { position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,.55);
+    display:none; align-items:center; justify-content:center; z-index:1000; padding:24px; }
+  .modal-overlay.show { display:flex; }
+  .modal { background:var(--panel); border:1px solid var(--border); border-radius:12px; width:100%; max-width:680px;
+    max-height:82vh; display:flex; flex-direction:column; overflow:hidden; }
+  .modal-head { display:flex; align-items:center; gap:10px; padding:16px 18px; border-bottom:1px solid var(--border); }
+  .modal-head .ti { font-size:20px; color:var(--accent); }
+  .modal-head .mt { flex:1; font-size:15px; font-weight:600; }
+  .modal-head .mc { color:var(--accent); font-weight:700; }
+  .modal-head .x { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:20px; }
+  .modal-head .x:hover { color:var(--text); }
+  .modal-body { padding:8px 18px 18px; overflow-y:auto; }
+  .macct { margin-top:14px; }
+  .macct-h { font-size:12.5px; color:#6cb6ff; font-weight:600; display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .mitem { display:flex; align-items:baseline; gap:8px; padding:6px 10px; border:1px solid var(--border); border-radius:7px; margin-bottom:6px; background:#11161d; }
+  .mitem .mn { font-size:13px; }
+  .mitem .mid { font-size:11px; color:var(--muted); font-family:ui-monospace,Menlo,monospace; margin-left:auto; }
+  .empty { padding:30px; text-align:center; color:var(--muted); }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .spin { display:inline-block; animation:spin .8s linear infinite; }
+  .empty .spin { font-size:22px; color:var(--accent); margin-bottom:10px; }
+  .empty .scan-msg { display:block; margin-top:6px; }
+  .scan-note { margin-top:14px; }
+  .scan-note summary { color:var(--muted); font-size:12px; cursor:pointer; }
+  .scan-note .dline { font-size:11.5px; color:var(--muted); padding-top:4px; white-space:pre-wrap; }
+
+  /* options */
+  .opt-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; }
+  .opt { border:1px solid var(--border); border-radius:10px; padding:14px; background:#11161d; cursor:pointer; transition:.12s; }
+  .opt:hover { border-color:#3a4656; }
+  .opt.sel { border-color:var(--accent); background:#0e1f1a; }
+  .opt .t { font-size:14px; display:flex; align-items:center; gap:8px; }
+  .opt .d { font-size:12px; color:var(--muted); margin-top:5px; }
+  .summary-chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .chip { display:flex; align-items:center; gap:6px; font-size:12.5px; padding:5px 10px; border-radius:14px;
+    background:#11161d; border:1px solid var(--border); }
+  .chip .ti { color:var(--accent); }
+  .confirm-box { margin-top:16px; padding:13px; border:1px solid var(--danger); background:var(--danger-bg); border-radius:8px; display:none; }
+  .confirm-box.show { display:block; }
+  .confirm-box .warn { color:var(--danger); font-weight:600; display:flex; align-items:center; gap:6px; }
+
+  /* progress log */
+  #log { background:#0a0e12; border:1px solid var(--border); border-radius:8px; padding:14px; font-size:13px;
+    line-height:1.5; max-height:440px; overflow-y:auto; margin-top:16px; }
+  #log .placeholder { color:var(--muted); }
+  .acct-card { border:1px solid var(--border); border-radius:8px; margin-bottom:12px; overflow:hidden; }
+  .acct-head { background:#141b24; padding:9px 12px; font-weight:600; color:#6cb6ff; border-bottom:1px solid var(--border);
+    font-size:13px; display:flex; align-items:center; gap:7px; }
+  .global-line { color:var(--muted); font-size:12.5px; padding:4px 2px; }
+  .section { border-top:1px solid #1c242e; } .section:first-child { border-top:none; }
+  .section>summary { list-style:none; cursor:pointer; padding:9px 12px; display:flex; align-items:center; gap:8px; font-size:13px; }
+  .section>summary::-webkit-details-marker { display:none; }
+  .sec-caret { color:var(--muted); transition:transform .12s; font-size:15px; }
+  .section[open] .sec-caret { transform:rotate(90deg); }
+  .section .sec-num { color:var(--accent); font-weight:600; min-width:20px; }
+  .section .sec-title { flex:1; display:flex; align-items:center; gap:7px; }
+  .section .sec-badge { font-size:11px; padding:1px 8px; border-radius:10px; background:#1c242e; color:var(--muted); }
+  .section .sec-badge.fail { background:var(--danger-bg); color:var(--danger); }
+  .section .sec-badge.ok { background:#0e1f1a; color:var(--accent); }
+  .details { padding:2px 12px 10px 40px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; line-height:1.55; }
+  .details .dline { white-space:pre-wrap; word-break:break-word; }
+  .log-fail{color:var(--danger);} .log-ok{color:var(--accent);} .log-skip{color:var(--muted);} .log-info{color:var(--text);}
 </style>
 </head>
 <body>
 <header>
-  <h1>🧨 NCP Nuke</h1>
-  <span class="badge">Sub Account & Resource 관리 콘솔</span>
+  <h1><i class="ti ti-bomb"></i> NCP Nuke</h1>
+  <span class="badge">Sub Account &amp; Resource 관리 콘솔</span>
 </header>
 <main>
-  <div class="panel">
-    <h2>1. 대상 계정 선택</h2>
-    <table>
-      <thead><tr>
-        <th class="checkbox-cell"><input type="checkbox" id="selAll"></th>
-        <th>Account Name</th><th>IAM Username</th><th>Access Key</th>
-      </tr></thead>
-      <tbody id="accts"><tr><td colspan="4" style="color:var(--muted)">불러오는 중...</td></tr></tbody>
-    </table>
-
-    <details id="addPanel" style="margin-top:14px">
-      <summary style="cursor:pointer;color:var(--accent);font-size:13px">+ 계정 추가 (엑셀 파일에도 저장됨)</summary>
-      <div class="row">
-        <div class="field"><label>Account Name (선택)</label><input type="text" id="naAccount" placeholder="자동 생성"></div>
-        <div class="field"><label>IAM Username *</label><input type="text" id="naIam" placeholder="서브 계정 LoginId"></div>
-      </div>
-      <div class="row">
-        <div class="field"><label>Access Key *</label><input type="text" id="naAccess"></div>
-        <div class="field"><label>Secret Key *</label><input type="password" id="naSecret"></div>
-        <div class="field"><label>Password (선택)</label><input type="text" id="naPassword" placeholder="활성화 시 비밀번호"></div>
-      </div>
-      <div class="run">
-        <button class="primary" id="addBtn">계정 추가</button>
-        <span class="hint" id="addHint"></span>
-      </div>
-    </details>
+  <div class="topbar" id="topbar" style="display:none">
+    <button class="linkbtn" id="backToMode"><i class="ti ti-arrow-left"></i> 작업 유형 변경</button>
   </div>
 
-  <div class="panel">
-    <h2>2. 작업 선택</h2>
-    <div class="actions" id="actions">
-      <button class="action-btn" data-action="activate">Sub Account 활성화<small>비밀번호 초기화 포함</small></button>
-      <button class="action-btn" data-action="deactivate">Sub Account 비활성화<small>로그인 차단</small></button>
-      <button class="action-btn danger" data-action="nuke">리소스 전체 삭제<small>모든 리소스 영구 삭제 (서브계정 유지)</small></button>
-      <button class="action-btn" data-action="list">리소스 전체 조회<small>읽기 전용</small></button>
-    </div>
-
-    <label class="opt" id="cleanupOpt" style="display:none">
-      <input type="checkbox" id="cleanup"> 비활성화 시 리소스도 함께 삭제 (Cleanup)
-    </label>
-
-    <div class="row" id="passwordRow" style="display:none">
-      <div class="field">
-        <label>공통 비밀번호 (비우면 자동 생성)</label>
-        <input type="password" id="password" placeholder="활성화 시 적용할 비밀번호">
+  <!-- MODE SELECT -->
+  <div class="panel" id="modeSelect">
+    <h2 class="sect">작업 유형 선택</h2>
+    <div class="mode-grid">
+      <div class="mode-card danger" data-mode="delete">
+        <i class="ti ti-trash"></i>
+        <div class="t">리소스 삭제 / 비활성화</div>
+        <div class="d">리소스를 조회해 선택한 종류만(또는 전체) 삭제하거나, 서브 계정을 비활성화합니다.</div>
       </div>
-    </div>
-
-    <div class="confirm-box" id="confirmBox">
-      <div>⚠ <strong>되돌릴 수 없는 작업</strong>입니다. 계속하려면 아래에 <strong>CONFIRM DELETE</strong> 를 입력하세요.</div>
-      <div class="row"><div class="field"><input type="text" id="confirm" placeholder="CONFIRM DELETE"></div></div>
-    </div>
-
-    <div class="run">
-      <button class="primary" id="runBtn" disabled>실행</button>
-      <span class="hint" id="runHint">계정과 작업을 선택하세요.</span>
+      <div class="mode-card" data-mode="activate">
+        <i class="ti ti-user-check"></i>
+        <div class="t">활성화 + 비밀번호 변경</div>
+        <div class="d">서브 계정을 활성(Active) 상태로 바꾸고 비밀번호를 초기화합니다.</div>
+      </div>
     </div>
   </div>
 
-  <div class="panel">
-    <h2>3. 진행 로그</h2>
-    <div id="log"><div class="placeholder">작업을 실행하면 단계별 진행 상황이 여기에 표시됩니다.</div></div>
+  <!-- WIZARD -->
+  <div id="wizard" style="display:none">
+    <div class="stepper" id="stepper">
+      <div class="step" data-s="1"><div class="circle">1</div><div class="label">계정 선택</div></div>
+      <div class="bar" data-b="1"></div>
+      <div class="step" data-s="2"><div class="circle">2</div><div class="label" id="lbl2">리소스 조회</div></div>
+      <div class="bar" data-b="2"></div>
+      <div class="step" data-s="3"><div class="circle">3</div><div class="label">실행</div></div>
+    </div>
+
+    <!-- STEP 1 : accounts (shared) -->
+    <section class="wizard-step panel" data-step="1">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+        <h2 class="sect" style="margin:0;">대상 계정 선택</h2>
+        <div style="display:flex; gap:14px; align-items:center;">
+          <button class="linkbtn" id="templateBtn" style="color:var(--muted);"><i class="ti ti-download"></i> 템플릿 다운로드</button>
+          <button class="linkbtn" id="uploadBtn" style="color:var(--accent);"><i class="ti ti-upload"></i> 엑셀 업로드</button>
+          <input type="file" id="uploadInput" accept=".xlsx" style="display:none">
+        </div>
+      </div>
+      <span class="hint" id="uploadHint" style="display:block; margin-bottom:10px;"></span>
+      <table>
+        <thead><tr><th class="checkbox-cell"><input type="checkbox" id="selAll"></th>
+          <th>Account Name</th><th>IAM Username</th><th>Access Key</th></tr></thead>
+        <tbody id="accts"><tr><td colspan="4" class="hint">불러오는 중...</td></tr></tbody>
+      </table>
+      <details id="addPanel" style="margin-top:14px">
+        <summary style="cursor:pointer;color:var(--accent);font-size:13px"><i class="ti ti-plus"></i> 계정 추가 (엑셀 파일에도 저장됨)</summary>
+        <div class="row">
+          <div class="field"><label>Account Name (선택)</label><input type="text" id="naAccount" placeholder="자동 생성"></div>
+          <div class="field"><label>IAM Username *</label><input type="text" id="naIam" placeholder="서브 계정 LoginId"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Access Key *</label><input type="text" id="naAccess"></div>
+          <div class="field"><label>Secret Key *</label><input type="password" id="naSecret"></div>
+          <div class="field"><label>Password (선택)</label><input type="text" id="naPassword"></div>
+        </div>
+        <div class="btns"><button class="primary" id="addBtn">계정 추가</button><span class="hint" id="addHint"></span></div>
+      </details>
+      <div class="btns"><span class="spacer"></span><span class="hint" id="s1hint"></span>
+        <button class="primary" id="toStep2" disabled>다음 <i class="ti ti-arrow-right"></i></button></div>
+    </section>
+
+    <!-- STEP 2 -->
+    <section class="wizard-step panel" data-step="2" style="display:none">
+      <div id="scanPanel">
+        <h2 class="sect">리소스 조회 — 삭제할 종류를 선택하세요</h2>
+        <div id="scanArea"><div class="empty"><i class="ti ti-loader-2 spin"></i><span class="scan-msg">조회 중...</span></div></div>
+        <div class="scan-note" id="scanNote" style="display:none">
+          <details><summary>조회 참고 (권한 없음/미사용 항목)</summary><div class="body"></div></details>
+        </div>
+      </div>
+      <div id="pwPanel" style="display:none">
+        <h2 class="sect">활성화 — 비밀번호 설정</h2>
+        <p class="lead-p">선택한 계정의 서브 계정을 활성화하고 비밀번호를 초기화합니다. 공통 비밀번호를 입력하세요. (엑셀에 비밀번호가 지정된 계정은 그 값이 우선합니다. 비우면 자동 생성)</p>
+        <div class="row"><div class="field"><label>공통 비밀번호</label><input type="password" id="actPassword" placeholder="비우면 자동 생성"></div></div>
+      </div>
+      <div class="btns">
+        <button class="ghost" id="backTo1"><i class="ti ti-arrow-left"></i> 이전</button>
+        <button class="ghost" id="rescan"><i class="ti ti-refresh"></i> 다시 조회</button>
+        <span class="spacer"></span><span class="hint" id="s2hint"></span>
+        <button class="primary" id="toStep3">다음 <i class="ti ti-arrow-right"></i></button>
+      </div>
+    </section>
+
+    <!-- STEP 3 -->
+    <section class="wizard-step panel" data-step="3" style="display:none">
+      <!-- delete/deactivate -->
+      <div id="execDelete">
+        <h2 class="sect">실행 — 비활성화 / 리소스 삭제</h2>
+        <div style="font-size:13px; margin-bottom:8px;">서브 계정 비활성화 <span class="hint">(리소스 삭제와 독립적으로 선택)</span></div>
+        <div class="opt-grid" id="subActions">
+          <div class="opt sel" data-sub="none"><div class="t"><i class="ti ti-ban"></i> 작업 안 함</div><div class="d">서브 계정 변경 없음</div></div>
+          <div class="opt" data-sub="deactivate"><div class="t"><i class="ti ti-user-off"></i> 비활성화</div><div class="d">로그인 차단</div></div>
+        </div>
+        <div style="font-size:13px; margin:18px 0 4px;">삭제할 리소스</div>
+        <div class="summary-chips" id="delSummary"><span class="hint">선택된 리소스 없음 (2단계에서 선택)</span></div>
+        <div class="confirm-box" id="confirmBox">
+          <div class="warn"><i class="ti ti-alert-triangle"></i> 되돌릴 수 없는 작업입니다. 계속하려면 아래에 <b>CONFIRM DELETE</b> 를 입력하세요.</div>
+          <div class="row"><div class="field"><input type="text" id="confirm" placeholder="CONFIRM DELETE"></div></div>
+        </div>
+      </div>
+      <!-- activate -->
+      <div id="execActivate" style="display:none">
+        <h2 class="sect">활성화 실행</h2>
+        <p class="lead-p" id="actSummary"></p>
+      </div>
+
+      <div class="btns">
+        <button class="ghost" id="backTo2"><i class="ti ti-arrow-left"></i> 이전</button>
+        <span class="spacer"></span><span class="hint" id="s3hint"></span>
+        <button class="primary" id="runBtn"><i class="ti ti-player-play"></i> 실행</button>
+      </div>
+      <div id="log"><div class="placeholder">실행하면 진행 상황이 여기에 리소스별로 표시됩니다.</div></div>
+    </section>
   </div>
 </main>
 
-<script>
-const state = { accounts: [], selected: new Set(), action: null, running: false };
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-head">
+      <i class="ti" id="modalIcon"></i>
+      <span class="mt" id="modalTitle"></span>
+      <span class="mc" id="modalCount"></span>
+      <button class="x" id="modalClose"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
 
-async function loadAccounts() {
-  const res = await fetch('/api/accounts');
-  state.accounts = await res.json();
-  const tb = document.getElementById('accts');
-  tb.innerHTML = '';
-  if (!state.accounts.length) {
-    tb.innerHTML = '<tr><td colspan="4" style="color:var(--muted)">계정이 없습니다.</td></tr>';
-    return;
+<script>
+const RES_META = {
+  'Server':{ko:'서버',icon:'ti-server'},
+  'Block Storage':{ko:'블록 스토리지',icon:'ti-disc'},
+  'Block Storage Snapshot':{ko:'블록 스토리지 스냅샷',icon:'ti-camera'},
+  'Public IP':{ko:'공인 IP',icon:'ti-world'},
+  'NAS Volume':{ko:'NAS 볼륨',icon:'ti-folder'},
+  'NAS Volume Snapshot':{ko:'NAS 스냅샷',icon:'ti-camera'},
+  'Load Balancer':{ko:'로드밸런서',icon:'ti-scale'},
+  'Target Group':{ko:'타깃 그룹',icon:'ti-target'},
+  'Cloud DB':{ko:'Cloud DB',icon:'ti-database'},
+  'Cloud PostgreSQL':{ko:'PostgreSQL',icon:'ti-database'},
+  'Cloud MongoDB':{ko:'MongoDB',icon:'ti-database'},
+  'Cloud MariaDB':{ko:'MariaDB',icon:'ti-database'},
+  'Cloud MySQL':{ko:'MySQL',icon:'ti-database'},
+  'Cloud Redis':{ko:'Redis',icon:'ti-database'},
+  'VPC':{ko:'VPC',icon:'ti-cloud'},
+  'Subnet':{ko:'서브넷',icon:'ti-sitemap'},
+  'NAT Gateway':{ko:'NAT 게이트웨이',icon:'ti-router'},
+  'VPC Peering':{ko:'VPC 피어링',icon:'ti-link'},
+  'Network ACL':{ko:'네트워크 ACL',icon:'ti-shield'},
+  'Route Table':{ko:'라우트 테이블',icon:'ti-route'},
+  'Access Control Group':{ko:'접근 제어 그룹(ACG)',icon:'ti-lock'},
+  'Auto Scaling Group':{ko:'오토 스케일링 그룹',icon:'ti-trending-up'},
+  'Launch Configuration':{ko:'런치 설정',icon:'ti-rocket'},
+  'NKS Cluster':{ko:'쿠버네티스(NKS)',icon:'ti-hexagon'},
+  'Init Script':{ko:'Init 스크립트',icon:'ti-file-code'},
+  'Login Key':{ko:'로그인 키',icon:'ti-key'},
+  'Placement Group':{ko:'물리 배치 그룹',icon:'ti-stack-2'},
+  'Object Storage Bucket':{ko:'오브젝트 스토리지',icon:'ti-package'},
+  'Sub Account':{ko:'서브 계정',icon:'ti-user'},
+};
+function resMeta(k){ return RES_META[k] || {ko:k, icon:'ti-point'}; }
+function icon(cls){ return `<i class="ti ${cls}"></i>`; }
+const val = id => document.getElementById(id).value.trim();
+function esc(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
+
+const state = { mode:null, accounts:[], selected:new Set(), step:1, types:[], details:{}, delTypes:new Set(), subAction:'none', running:false };
+
+/* ---------- resource detail modal ---------- */
+function openDetail(key, count) {
+  const m = resMeta(key);
+  document.getElementById('modalIcon').className = 'ti ' + m.icon;
+  document.getElementById('modalTitle').textContent = m.ko;
+  document.getElementById('modalCount').textContent = (count!=null?count:'') + '개';
+  const body = document.getElementById('modalBody');
+  const items = state.details[key] || [];
+  if (!items.length) { body.innerHTML = '<p class="hint" style="padding:14px 0;">표시할 항목이 없습니다.</p>'; }
+  else {
+    const byAcct = {};
+    for (const it of items) (byAcct[it.account] ||= []).push(it);
+    body.innerHTML = Object.keys(byAcct).map(acct => {
+      const rows = byAcct[acct].map(it =>
+        `<div class="mitem"><span class="mn">${esc(it.name||'(이름 없음)')}</span>${it.id?`<span class="mid">${esc(it.id)}</span>`:''}</div>`).join('');
+      return `<div class="macct"><div class="macct-h">${icon('ti-folder')} ${esc(acct)} · ${byAcct[acct].length}개</div>${rows}</div>`;
+    }).join('');
   }
+  document.getElementById('modal').classList.add('show');
+}
+function closeModal(){ document.getElementById('modal').classList.remove('show'); }
+document.getElementById('modalClose').addEventListener('click', closeModal);
+document.getElementById('modal').addEventListener('click', e => { if (e.target.id==='modal') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
+
+/* ---------- mode selection ---------- */
+document.querySelectorAll('.mode-card').forEach(c => c.addEventListener('click', () => selectMode(c.dataset.mode)));
+document.getElementById('backToMode').addEventListener('click', backToMode);
+
+function selectMode(mode) {
+  state.mode = mode;
+  state.types = []; state.delTypes.clear(); state.subAction='none';
+  document.getElementById('confirm').value=''; document.getElementById('actPassword').value='';
+  document.querySelectorAll('#subActions .opt').forEach((o,i)=>o.classList.toggle('sel', i===0));
+  document.getElementById('lbl2').textContent = mode==='delete' ? '리소스 조회' : '비밀번호 설정';
+  document.getElementById('rescan').style.display = mode==='delete' ? '' : 'none';
+  document.getElementById('modeSelect').style.display='none';
+  document.getElementById('wizard').style.display='';
+  document.getElementById('topbar').style.display='';
+  gotoStep(1);
+}
+function backToMode() {
+  document.getElementById('wizard').style.display='none';
+  document.getElementById('topbar').style.display='none';
+  document.getElementById('modeSelect').style.display='';
+  window.scrollTo({top:0});
+}
+
+/* ---------- stepper ---------- */
+function gotoStep(n) {
+  state.step = n;
+  document.querySelectorAll('.wizard-step').forEach(el => el.style.display = (+el.dataset.step===n) ? '' : 'none');
+  document.querySelectorAll('.stepper .step').forEach(el => { const s=+el.dataset.s; el.classList.toggle('active',s===n); el.classList.toggle('done',s<n); });
+  document.querySelectorAll('.stepper .bar').forEach(el => el.classList.toggle('done', +el.dataset.b < n));
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+/* ---------- step 1: accounts ---------- */
+async function loadAccounts() {
+  state.accounts = await (await fetch('/api/accounts')).json();
+  renderAccounts();
+}
+function renderAccounts() {
+  const tb = document.getElementById('accts'); tb.innerHTML='';
+  if (!state.accounts.length) { tb.innerHTML='<tr><td colspan="4" class="hint">계정이 없습니다. 위의 “엑셀 업로드”로 계정 파일을 불러오세요.</td></tr>'; updateS1(); return; }
   for (const a of state.accounts) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="checkbox-cell"><input type="checkbox" data-idx="${a.index}"></td>
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td class="checkbox-cell"><input type="checkbox" data-idx="${a.index}" ${state.selected.has(a.index)?'checked':''}></td>
       <td>${esc(a.accountName)}</td><td>${esc(a.iamUsername)}</td><td>${esc(a.accessKey)}</td>`;
     tb.appendChild(tr);
   }
-  tb.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const idx = +cb.dataset.idx;
-      cb.checked ? state.selected.add(idx) : state.selected.delete(idx);
-      updateRun();
-    });
-  });
+  tb.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.addEventListener('change',()=>{
+    const i=+cb.dataset.idx; cb.checked?state.selected.add(i):state.selected.delete(i); updateS1();
+  }));
+  updateS1();
 }
-
-document.getElementById('selAll').addEventListener('change', e => {
-  document.querySelectorAll('#accts input[type=checkbox]').forEach(cb => {
-    cb.checked = e.target.checked;
-    const idx = +cb.dataset.idx;
-    e.target.checked ? state.selected.add(idx) : state.selected.delete(idx);
-  });
-  updateRun();
+document.getElementById('selAll').addEventListener('change', e=>{
+  document.querySelectorAll('#accts input[type=checkbox]').forEach(cb=>{ cb.checked=e.target.checked; const i=+cb.dataset.idx; e.target.checked?state.selected.add(i):state.selected.delete(i); });
+  updateS1();
 });
+function updateS1() {
+  const ok=state.selected.size>0;
+  document.getElementById('toStep2').disabled=!ok;
+  document.getElementById('s1hint').textContent = ok ? `${state.selected.size}개 계정 선택됨` : '계정을 1개 이상 선택하세요.';
+}
+let DESKTOP = false;
+async function detectEnv() {
+  try { const e = await (await fetch('/api/env')).json(); DESKTOP = !!e.desktop; } catch(_) {}
+}
 
-document.querySelectorAll('.action-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    state.action = btn.dataset.action;
-    document.querySelectorAll('.action-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-    document.getElementById('cleanupOpt').style.display = state.action === 'deactivate' ? 'flex' : 'none';
-    document.getElementById('passwordRow').style.display = state.action === 'activate' ? 'flex' : 'none';
-    updateRun();
-  });
+document.getElementById('uploadBtn').addEventListener('click', () => {
+  if (DESKTOP) pickAccountsNative(); else document.getElementById('uploadInput').click();
 });
+document.getElementById('uploadInput').addEventListener('change', uploadFile);
 
-document.getElementById('cleanup').addEventListener('change', updateRun);
-document.getElementById('confirm').addEventListener('input', updateRun);
-
-function isDestructive() {
-  return state.action === 'nuke' || (state.action === 'deactivate' && document.getElementById('cleanup').checked);
-}
-
-function updateRun() {
-  const btn = document.getElementById('runBtn');
-  const hint = document.getElementById('runHint');
-  const confirmBox = document.getElementById('confirmBox');
-  const destructive = isDestructive();
-  confirmBox.classList.toggle('show', destructive);
-  btn.classList.toggle('danger', destructive);
-
-  let ok = state.selected.size > 0 && state.action && !state.running;
-  if (destructive && document.getElementById('confirm').value !== 'CONFIRM DELETE') ok = false;
-  btn.disabled = !ok;
-
-  if (state.running) hint.textContent = '실행 중...';
-  else if (!state.selected.size) hint.textContent = '계정을 선택하세요.';
-  else if (!state.action) hint.textContent = '작업을 선택하세요.';
-  else if (destructive && document.getElementById('confirm').value !== 'CONFIRM DELETE')
-    hint.textContent = 'CONFIRM DELETE 를 입력하세요.';
-  else hint.textContent = `${state.selected.size}개 계정 대상`;
-}
-
-document.getElementById('runBtn').addEventListener('click', run);
-
-// Friendly Korean labels + icons per resource category.
-const RES_META = {
-  'Server': {ko:'서버', icon:'🖥️'},
-  'Block Storage': {ko:'블록 스토리지', icon:'💽'},
-  'Block Storage Snapshot': {ko:'블록 스토리지 스냅샷', icon:'📸'},
-  'Public IP': {ko:'공인 IP', icon:'🌐'},
-  'NAS Volume': {ko:'NAS 볼륨', icon:'🗄️'},
-  'NAS Snapshot': {ko:'NAS 스냅샷', icon:'📸'},
-  'Load Balancer': {ko:'로드밸런서', icon:'⚖️'},
-  'Target Group': {ko:'타깃 그룹', icon:'🎯'},
-  'Cloud DB': {ko:'Cloud DB', icon:'🛢️'},
-  'Cloud PostgreSQL': {ko:'PostgreSQL', icon:'🐘'},
-  'Cloud MongoDB': {ko:'MongoDB', icon:'🍃'},
-  'Cloud MariaDB': {ko:'MariaDB', icon:'🛢️'},
-  'Cloud MySQL': {ko:'MySQL', icon:'🐬'},
-  'Cloud Redis': {ko:'Redis', icon:'🧊'},
-  'VPC': {ko:'VPC', icon:'🧩'},
-  'Subnet': {ko:'서브넷', icon:'🔲'},
-  'NAT Gateway': {ko:'NAT 게이트웨이', icon:'🚪'},
-  'VPC Peering': {ko:'VPC 피어링', icon:'🔗'},
-  'Network ACL': {ko:'네트워크 ACL', icon:'🛡️'},
-  'Route Table': {ko:'라우트 테이블', icon:'🧭'},
-  'Access Control Group': {ko:'접근 제어 그룹(ACG)', icon:'🔐'},
-  'Auto Scaling Group': {ko:'오토 스케일링 그룹', icon:'📈'},
-  'Launch Configuration': {ko:'런치 설정', icon:'🚀'},
-  'NKS Cluster': {ko:'쿠버네티스(NKS)', icon:'☸️'},
-  'Init Script': {ko:'Init 스크립트', icon:'📜'},
-  'Login Key': {ko:'로그인 키', icon:'🔑'},
-  'Placement Group': {ko:'물리 배치 그룹', icon:'🧱'},
-  'Object Storage': {ko:'오브젝트 스토리지', icon:'📦'},
-  'Sub Account': {ko:'서브 계정', icon:'👤'},
-};
-function resMeta(key) { return RES_META[key] || {ko: key, icon: '•'}; }
-
-// Rendering context. Sections are grouped by resource per account card.
-const view = { log: null, card: null, sections: null, sectionCount: 0, listMode: false };
-
-function resetLog() {
-  const log = document.getElementById('log');
-  log.innerHTML = '';
-  view.log = log; view.card = null; view.sections = null; view.sectionCount = 0;
-  view.listMode = state.action === 'list';
-}
-
-async function run() {
-  state.running = true; updateRun();
-  resetLog();
-  const body = {
-    selected: [...state.selected],
-    action: state.action,
-    password: document.getElementById('password').value,
-    cleanup: document.getElementById('cleanup').checked,
-    confirm: document.getElementById('confirm').value,
-  };
+async function uploadFile(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const hint = document.getElementById('uploadHint');
+  hint.style.color='var(--muted)'; hint.innerHTML=`${icon('ti-loader-2 spin')} 업로드/파싱 중...`;
+  const fd = new FormData(); fd.append('file', f);
   try {
-    const res = await fetch('/api/run', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
-    });
-    if (!res.ok) { handleEvent({type:'global', text:'[오류] ' + (await res.text()), status:'fail'}); return; }
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, {stream: true});
-      let nl;
-      while ((nl = buf.indexOf('\n\n')) >= 0) {
-        const chunk = buf.slice(0, nl); buf = buf.slice(nl + 2);
-        for (const line of chunk.split('\n')) {
-          if (line.startsWith('data: ')) {
-            const payload = line.slice(6);
-            if (payload === 'end') continue;
-            try { handleEvent(JSON.parse(payload)); } catch (_) {}
-          }
-        }
-      }
-    }
-  } catch (e) {
-    handleEvent({type:'global', text:'[오류] ' + e.message, status:'fail'});
-  } finally {
-    state.running = false; updateRun();
-  }
+    const res = await fetch('/api/upload', {method:'POST', body:fd});
+    if (!res.ok) { hint.style.color='var(--danger)'; hint.textContent='업로드 실패: '+(await res.text()); return; }
+    state.accounts = await res.json(); state.selected.clear(); renderAccounts();
+    hint.style.color='var(--accent)'; hint.innerHTML=`${icon('ti-circle-check')} '${esc(f.name)}' 불러옴 — 계정 ${state.accounts.length}개`;
+  } catch(err) { hint.style.color='var(--danger)'; hint.textContent='오류: '+err.message; }
+  finally { e.target.value=''; }
 }
 
-function statusClass(s) {
-  return s === 'fail' ? 'log-fail' : s === 'ok' ? 'log-ok' : s === 'skip' ? 'log-skip' : 'log-info';
+// Desktop: use native file chooser via the local server.
+async function pickAccountsNative() {
+  const hint = document.getElementById('uploadHint');
+  hint.style.color='var(--muted)'; hint.innerHTML=`${icon('ti-loader-2 spin')} 파일 선택 창...`;
+  try {
+    const res = await fetch('/api/desktop/pick-accounts', {method:'POST'});
+    if (res.status===204) { hint.textContent=''; return; } // cancelled
+    if (!res.ok) { hint.style.color='var(--danger)'; hint.textContent='실패: '+(await res.text()); return; }
+    state.accounts = await res.json(); state.selected.clear(); renderAccounts();
+    hint.style.color='var(--accent)'; hint.innerHTML=`${icon('ti-circle-check')} 계정 ${state.accounts.length}개 불러옴`;
+  } catch(err) { hint.style.color='var(--danger)'; hint.textContent='오류: '+err.message; }
 }
 
-function handleEvent(ev) {
-  const log = view.log || document.getElementById('log');
-  if (ev.type === 'account') {
-    const name = ev.text.replace(/^\[루트 계정:\s*/, '').replace(/\]$/, '');
-    const card = document.createElement('div');
-    card.className = 'acct-card';
-    card.innerHTML = `<div class="acct-head">🗂 ${esc(name)}</div>`;
-    log.appendChild(card);
-    view.card = card; view.sections = {}; view.sectionCount = 0;
-  } else if (view.listMode) {
-    handleListEvent(ev);
-  } else if (ev.type === 'resource') {
-    const sec = sectionFor(ev.resource, log);
-    const d = document.createElement('div');
-    d.className = 'dline ' + statusClass(ev.status);
-    d.style.paddingLeft = Math.max(0, (ev.depth - 1)) * 14 + 'px';
-    d.textContent = ev.text;
-    sec.querySelector('.details').appendChild(d);
-    if (ev.status === 'fail') markSection(sec, 'fail', '실패');
-    else if (ev.status === 'ok' && !sec.dataset.fail) markSection(sec, 'ok', '완료');
-  } else { // global
-    const g = document.createElement('div');
-    g.className = 'global-line ' + statusClass(ev.status);
-    g.textContent = ev.text;
-    (view.card || log).appendChild(g);
-  }
-  log.scrollTop = log.scrollHeight;
+document.getElementById('templateBtn').addEventListener('click', downloadTemplate);
+async function downloadTemplate() {
+  const hint = document.getElementById('uploadHint');
+  if (!DESKTOP) { window.location.href = '/api/template'; return; }
+  hint.style.color='var(--muted)'; hint.innerHTML=`${icon('ti-loader-2 spin')} 저장 위치 선택...`;
+  try {
+    const res = await fetch('/api/desktop/save-template');
+    if (res.status===204) { hint.textContent=''; return; }
+    if (!res.ok) { hint.style.color='var(--danger)'; hint.textContent='저장 실패: '+(await res.text()); return; }
+    const d = await res.json();
+    hint.style.color='var(--accent)'; hint.innerHTML=`${icon('ti-circle-check')} 템플릿 저장됨: ${esc(d.path)}`;
+  } catch(err) { hint.style.color='var(--danger)'; hint.textContent='오류: '+err.message; }
 }
-
-// List view: render a friendly grid of resource counts; tuck scan warnings away.
-function handleListEvent(ev) {
-  const card = view.card || view.log;
-  if (ev.type === 'resource') {
-    const m = ev.text.match(/:\s*([\d,]+)\s*개/);
-    if (m) {
-      addResChip(card, ev.resource, m[1]);
-    } else if (ev.status === 'skip' || ev.status === 'fail') {
-      addScanNote(card, ev.text);
-    }
-  } else if (ev.text.includes('리소스 없음')) {
-    markEmpty(card);
-  }
-}
-
-function gridOf(card) {
-  let g = card.querySelector('.res-grid');
-  if (!g) { g = document.createElement('div'); g.className = 'res-grid'; card.appendChild(g); }
-  return g;
-}
-
-function addResChip(card, resource, count) {
-  const empty = card.querySelector('.res-empty'); if (empty) empty.remove();
-  const meta = resMeta(resource);
-  const chip = document.createElement('div');
-  chip.className = 'res-chip';
-  chip.innerHTML = `<span class="ic">${meta.icon}</span><span class="nm">${esc(meta.ko)}</span>` +
-    `<span class="ct">${esc(count)}<span class="unit">개</span></span>`;
-  gridOf(card).appendChild(chip);
-}
-
-function markEmpty(card) {
-  if (card.querySelector('.res-grid') || card.querySelector('.res-empty')) return;
-  const e = document.createElement('div');
-  e.className = 'res-empty';
-  e.textContent = '🎉 삭제할 리소스가 없습니다.';
-  card.appendChild(e);
-}
-
-function addScanNote(card, text) {
-  let note = card.querySelector('.scan-note');
-  if (!note) {
-    note = document.createElement('div');
-    note.className = 'scan-note';
-    note.innerHTML = '<details><summary>조회 참고 (권한 없음/미사용 항목)</summary><div class="body"></div></details>';
-    card.appendChild(note);
-  }
-  const d = document.createElement('div');
-  d.className = 'dline log-skip';
-  d.textContent = text;
-  note.querySelector('.body').appendChild(d);
-}
-
-// sectionFor returns the resource section in the current card, creating it
-// (numbered, collapsible) on first use so all lines for a resource group together.
-function sectionFor(resource, log) {
-  if (!view.sections) { view.sections = {}; }
-  if (view.sections[resource]) return view.sections[resource];
-  view.sectionCount++;
-  const meta = resMeta(resource);
-  const sec = document.createElement('details');
-  sec.className = 'section'; sec.open = true;
-  sec.innerHTML = `<summary><span class="sec-num">${view.sectionCount}.</span>` +
-    `<span class="sec-title">${meta.icon} ${esc(meta.ko)}</span>` +
-    `<span class="sec-badge" style="display:none"></span></summary>` +
-    `<div class="details"></div>`;
-  (view.card || log).appendChild(sec);
-  view.sections[resource] = sec;
-  return sec;
-}
-
-function markSection(sec, cls, label) {
-  if (cls === 'fail') sec.dataset.fail = '1';
-  const b = sec.querySelector('.sec-badge');
-  if (!b) return;
-  b.className = 'sec-badge ' + cls; b.textContent = label; b.style.display = '';
-}
-
-function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
 
 document.getElementById('addBtn').addEventListener('click', addAccount);
-
 async function addAccount() {
-  const btn = document.getElementById('addBtn');
-  const hint = document.getElementById('addHint');
-  const body = {
-    accountName: document.getElementById('naAccount').value.trim(),
-    iamUsername: document.getElementById('naIam').value.trim(),
-    accessKey: document.getElementById('naAccess').value.trim(),
-    secretKey: document.getElementById('naSecret').value.trim(),
-    password: document.getElementById('naPassword').value,
-  };
-  if (!body.accessKey || !body.secretKey || !body.iamUsername) {
-    hint.style.color = 'var(--danger)';
-    hint.textContent = 'Access Key, Secret Key, IAM Username은 필수입니다.';
-    return;
-  }
-  btn.disabled = true; hint.style.color = 'var(--muted)'; hint.textContent = '저장 중...';
+  const hint=document.getElementById('addHint'); const btn=document.getElementById('addBtn');
+  const body={accountName:val('naAccount'),iamUsername:val('naIam'),accessKey:val('naAccess'),secretKey:val('naSecret'),password:document.getElementById('naPassword').value};
+  if (!body.accessKey||!body.secretKey||!body.iamUsername){hint.style.color='var(--danger)';hint.textContent='Access/Secret Key, IAM Username 필수';return;}
+  btn.disabled=true; hint.style.color='var(--muted)'; hint.textContent='저장 중...';
   try {
-    const res = await fetch('/api/accounts', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      hint.style.color = 'var(--danger)';
-      hint.textContent = '실패: ' + (await res.text());
-      return;
-    }
-    hint.style.color = 'var(--accent)';
-    hint.textContent = '추가됨 (엑셀 파일에 저장)';
-    ['naAccount','naIam','naAccess','naSecret','naPassword'].forEach(id => document.getElementById(id).value = '');
+    const res=await fetch('/api/accounts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!res.ok){hint.style.color='var(--danger)';hint.textContent='실패: '+(await res.text());return;}
+    hint.style.color='var(--accent)'; hint.textContent='추가됨 (엑셀 저장)';
+    ['naAccount','naIam','naAccess','naSecret','naPassword'].forEach(id=>document.getElementById(id).value='');
     await loadAccounts();
-  } catch (e) {
-    hint.style.color = 'var(--danger)';
-    hint.textContent = '오류: ' + e.message;
-  } finally {
-    btn.disabled = false;
-  }
+  } finally { btn.disabled=false; }
 }
 
-loadAccounts();
+/* ---------- step 2 ---------- */
+document.getElementById('toStep2').addEventListener('click', () => {
+  gotoStep(2);
+  if (state.mode==='delete') { showPanel('scanPanel'); scan(); }
+  else { showPanel('pwPanel'); updateS2(); }
+});
+document.getElementById('backTo1').addEventListener('click', () => gotoStep(1));
+document.getElementById('rescan').addEventListener('click', scan);
+document.getElementById('toStep3').addEventListener('click', () => {
+  gotoStep(3);
+  if (state.mode==='delete') { showExec('execDelete'); renderDelSummary(); }
+  else { showExec('execActivate'); renderActSummary(); }
+  updateS3();
+});
+function showPanel(id){ ['scanPanel','pwPanel'].forEach(p=>document.getElementById(p).style.display = p===id?'':'none'); }
+function showExec(id){ ['execDelete','execActivate'].forEach(p=>document.getElementById(p).style.display = p===id?'':'none'); }
+
+async function scan() {
+  const area=document.getElementById('scanArea'); const note=document.getElementById('scanNote');
+  area.innerHTML=`<div class="empty"><i class="ti ti-loader-2 spin"></i><span class="scan-msg">선택한 ${state.selected.size}개 계정의 리소스를 조회하는 중...</span></div>`;
+  note.style.display='none'; note.querySelector('.body').innerHTML='';
+  state.types=[]; state.delTypes.clear();
+  try {
+    const res=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({selected:[...state.selected]})});
+    if(!res.ok){area.innerHTML=`<div class="empty">${icon('ti-alert-circle')} 조회 실패: ${esc(await res.text())}</div>`;return;}
+    const data=await res.json(); state.types=data.types||[]; state.details=data.details||{}; renderScan(data);
+  } catch(e){ area.innerHTML=`<div class="empty">${icon('ti-alert-circle')} 오류: ${esc(e.message)}</div>`; }
+}
+function renderScan(data) {
+  const area=document.getElementById('scanArea');
+  if (!state.types.length) { area.innerHTML=`<div class="empty">${icon('ti-circle-check')} 삭제할 리소스가 없습니다.</div>`; }
+  else {
+    area.innerHTML='';
+    const allBar=document.createElement('div'); allBar.className='rsel-allbar'; allBar.id='rselAll';
+    allBar.innerHTML=`<span class="lead">${icon('ti-flame')} 전체 삭제 — 모든 리소스 종류 (${state.types.length}종)</span><button class="all-toggle" id="allToggleBtn"></button>`;
+    area.appendChild(allBar);
+    allBar.querySelector('#allToggleBtn').addEventListener('click', toggleAll);
+    const grid=document.createElement('div'); grid.className='rsel-grid';
+    for (const t of state.types) {
+      const m=resMeta(t.key);
+      const el=document.createElement('div'); el.className='rsel'; el.dataset.key=t.key;
+      el.innerHTML=`<div class="chk">${icon('ti-check')}</div><span class="ic">${icon(m.icon)}</span><span class="nm">${esc(m.ko)}</span><span class="ct">${t.count}<span class="u">개</span></span>`+
+        `<button class="detail-btn" title="상세보기">${icon('ti-eye')}</button>`;
+      el.addEventListener('click',()=>{ state.delTypes.has(t.key)?state.delTypes.delete(t.key):state.delTypes.add(t.key); el.classList.toggle('checked',state.delTypes.has(t.key)); syncAllBar(); updateS2(); });
+      el.querySelector('.detail-btn').addEventListener('click',(ev)=>{ ev.stopPropagation(); openDetail(t.key, t.count); });
+      grid.appendChild(el);
+    }
+    area.appendChild(grid);
+  }
+  if (data.warnings && data.warnings.length) {
+    const note=document.getElementById('scanNote'); note.style.display='';
+    note.querySelector('.body').innerHTML=data.warnings.map(w=>`<div class="dline">${esc(w)}</div>`).join('');
+  }
+  syncAllBar(); updateS2();
+}
+function toggleAll() {
+  const all=state.delTypes.size===state.types.length && state.types.length>0;
+  if (all) state.delTypes.clear(); else state.types.forEach(t=>state.delTypes.add(t.key));
+  document.querySelectorAll('#scanArea .rsel').forEach(el=>el.classList.toggle('checked',state.delTypes.has(el.dataset.key)));
+  syncAllBar(); updateS2();
+}
+function syncAllBar() {
+  const bar=document.getElementById('rselAll'); if(!bar) return;
+  const all=state.types.length>0 && state.delTypes.size===state.types.length;
+  bar.classList.toggle('checked',all);
+  const btn=document.getElementById('allToggleBtn'); if(btn) btn.innerHTML = all?`${icon('ti-x')} 전체 해제`:`${icon('ti-flame')} 전체 선택`;
+}
+function updateS2() {
+  const h=document.getElementById('s2hint');
+  if (state.mode!=='delete') { h.textContent=''; return; }
+  const n=state.delTypes.size;
+  h.textContent = n===0 ? '삭제할 리소스를 선택하거나, 그냥 다음으로 진행하세요.' : (n===state.types.length?`전체 ${n}종 삭제 선택됨`:`${n}종 삭제 선택됨`);
+}
+
+/* ---------- step 3 ---------- */
+document.getElementById('backTo2').addEventListener('click', () => gotoStep(2));
+document.querySelectorAll('#subActions .opt').forEach(opt=>opt.addEventListener('click',()=>{
+  document.querySelectorAll('#subActions .opt').forEach(o=>o.classList.remove('sel'));
+  opt.classList.add('sel'); state.subAction=opt.dataset.sub; updateS3();
+}));
+document.getElementById('confirm').addEventListener('input', updateS3);
+
+function renderDelSummary() {
+  const box=document.getElementById('delSummary');
+  if (!state.delTypes.size) { box.innerHTML='<span class="hint">선택된 리소스 없음 (2단계에서 선택)</span>'; return; }
+  box.innerHTML=[...state.delTypes].map(k=>{const m=resMeta(k);return `<span class="chip">${icon(m.icon)} ${esc(m.ko)}</span>`;}).join('');
+}
+function renderActSummary() {
+  const pw=document.getElementById('actPassword').value;
+  document.getElementById('actSummary').innerHTML =
+    `${icon('ti-user-check')} 선택한 <b>${state.selected.size}개 계정</b>의 서브 계정을 <b>활성화</b>하고 비밀번호를 ` +
+    (pw ? '입력한 공통 비밀번호로' : '<b>자동 생성</b>하여') + ' 초기화합니다.';
+}
+function updateS3() {
+  const btn=document.getElementById('runBtn'); const hint=document.getElementById('s3hint');
+  if (state.mode==='activate') {
+    btn.classList.remove('danger'); btn.disabled = state.running;
+    hint.textContent = state.running ? '실행 중...' : '';
+    return;
+  }
+  const hasDelete=state.delTypes.size>0;
+  document.getElementById('confirmBox').classList.toggle('show',hasDelete);
+  btn.classList.toggle('danger',hasDelete);
+  let ok=(hasDelete || state.subAction==='deactivate') && !state.running;
+  if (hasDelete && document.getElementById('confirm').value!=='CONFIRM DELETE') ok=false;
+  btn.disabled=!ok;
+  if (state.running) hint.textContent='실행 중...';
+  else if (!hasDelete && state.subAction==='none') hint.textContent='삭제 리소스 또는 비활성화를 선택하세요.';
+  else if (hasDelete && document.getElementById('confirm').value!=='CONFIRM DELETE') hint.textContent='CONFIRM DELETE 입력 필요';
+  else hint.textContent='';
+}
+
+document.getElementById('runBtn').addEventListener('click', execute);
+async function execute() {
+  state.running=true; updateS3(); resetLog();
+  let body;
+  if (state.mode==='activate') {
+    body={selected:[...state.selected], subAction:'activate', password:document.getElementById('actPassword').value, deleteTypes:[], confirm:''};
+  } else {
+    body={selected:[...state.selected], subAction:state.subAction, password:'', deleteTypes:[...state.delTypes], confirm:document.getElementById('confirm').value};
+  }
+  try {
+    const res=await fetch('/api/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!res.ok){ handleEvent({type:'global',text:'[오류] '+(await res.text()),status:'fail'}); return; }
+    const reader=res.body.getReader(); const dec=new TextDecoder(); let buf='';
+    while (true) {
+      const {done,value}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true}); let nl;
+      while ((nl=buf.indexOf('\n\n'))>=0) {
+        const chunk=buf.slice(0,nl); buf=buf.slice(nl+2);
+        for (const line of chunk.split('\n')) if (line.startsWith('data: ')) { const p=line.slice(6); if(p==='end')continue; try{handleEvent(JSON.parse(p));}catch(_){} }
+      }
+    }
+  } catch(e){ handleEvent({type:'global',text:'[오류] '+e.message,status:'fail'}); }
+  finally { state.running=false; updateS3(); }
+}
+
+/* ---------- structured progress log ---------- */
+const view={ log:null, card:null, sections:null, sectionCount:0 };
+function resetLog(){ const log=document.getElementById('log'); log.innerHTML=''; view.log=log; view.card=null; view.sections={}; view.sectionCount=0; }
+function statusClass(s){ return s==='fail'?'log-fail':s==='ok'?'log-ok':s==='skip'?'log-skip':'log-info'; }
+function handleEvent(ev) {
+  const log=view.log||document.getElementById('log');
+  if (ev.type==='account') {
+    const name=ev.text.replace(/^\[루트 계정:\s*/,'').replace(/\]$/,'');
+    const card=document.createElement('div'); card.className='acct-card';
+    card.innerHTML=`<div class="acct-head">${icon('ti-folder')} ${esc(name)}</div>`;
+    log.appendChild(card); view.card=card; view.sections={}; view.sectionCount=0;
+  } else if (ev.type==='resource') {
+    const sec=sectionFor(ev.resource, log);
+    const d=document.createElement('div'); d.className='dline '+statusClass(ev.status);
+    d.style.paddingLeft=Math.max(0,(ev.depth-1))*14+'px'; d.textContent=ev.text;
+    sec.querySelector('.details').appendChild(d);
+    if (ev.status==='fail') markSection(sec,'fail','실패'); else if (ev.status==='ok' && !sec.dataset.fail) markSection(sec,'ok','완료');
+  } else {
+    const g=document.createElement('div'); g.className='global-line '+statusClass(ev.status); g.textContent=ev.text;
+    (view.card||log).appendChild(g);
+  }
+  log.scrollTop=log.scrollHeight;
+}
+function sectionFor(resource, log) {
+  if (!view.sections) view.sections={};
+  if (view.sections[resource]) return view.sections[resource];
+  view.sectionCount++; const m=resMeta(resource);
+  const sec=document.createElement('details'); sec.className='section'; sec.open=true;
+  sec.innerHTML=`<summary><i class="ti ti-chevron-right sec-caret"></i><span class="sec-num">${view.sectionCount}.</span><span class="sec-title">${icon(m.icon)} ${esc(m.ko)}</span><span class="sec-badge" style="display:none"></span></summary><div class="details"></div>`;
+  (view.card||log).appendChild(sec); view.sections[resource]=sec; return sec;
+}
+function markSection(sec,cls,label){ if(cls==='fail')sec.dataset.fail='1'; const b=sec.querySelector('.sec-badge'); if(!b)return; b.className='sec-badge '+cls; b.textContent=label; b.style.display=''; }
+
+detectEnv().then(loadAccounts);
 </script>
 </body>
 </html>

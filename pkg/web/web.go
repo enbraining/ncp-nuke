@@ -6,7 +6,11 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -26,21 +30,28 @@ type Server struct {
 	accounts []ncp.RootAccount
 	filePath string
 	cfg      *config.Config
+	Desktop  bool       // when true, file open/save use native OS dialogs
 	mu       sync.Mutex // serialize destructive runs and account mutations
 }
 
-// NewServer loads accounts from the given Excel file (and optional config JSON).
+// NewServer optionally preloads accounts from an Excel file. filePath may be
+// empty — accounts can then be uploaded from the browser via /api/upload.
 func NewServer(filePath, configPath string) (*Server, error) {
-	accounts, err := excel.ReadAccounts(filePath)
-	if err != nil {
-		return nil, err
-	}
-	var cfg *config.Config
-	if configPath != "" {
-		cfg, err = config.LoadConfig(configPath)
+	var accounts []ncp.RootAccount
+	if filePath != "" {
+		a, err := excel.ReadAccounts(filePath)
 		if err != nil {
 			return nil, err
 		}
+		accounts = a
+	}
+	var cfg *config.Config
+	if configPath != "" {
+		c, err := config.LoadConfig(configPath)
+		if err != nil {
+			return nil, err
+		}
+		cfg = c
 	}
 	return &Server{accounts: accounts, filePath: filePath, cfg: cfg}, nil
 }
@@ -59,7 +70,13 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	mux.HandleFunc("/api/accounts", s.handleAccounts)
-	mux.HandleFunc("/api/run", s.handleRun)
+	mux.HandleFunc("/api/upload", s.handleUpload)
+	mux.HandleFunc("/api/template", s.handleTemplate)
+	mux.HandleFunc("/api/desktop/pick-accounts", s.handlePickAccounts)
+	mux.HandleFunc("/api/desktop/save-template", s.handleSaveTemplate)
+	mux.HandleFunc("/api/env", s.handleEnv)
+	mux.HandleFunc("/api/scan", s.handleScan)
+	mux.HandleFunc("/api/execute", s.handleExecute)
 	return mux
 }
 
@@ -68,6 +85,149 @@ type accountDTO struct {
 	AccountName string `json:"accountName"`
 	IamUsername string `json:"iamUsername"`
 	AccessKey   string `json:"accessKey"`
+}
+
+// handleUpload accepts an uploaded accounts .xlsx, parses it, and replaces the
+// in-memory account list. The file is saved server-side so later "계정 추가"
+// (AppendAccount) and downloads keep working.
+func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseMultipartForm(20 << 20); err != nil {
+		http.Error(w, "업로드 파싱 실패: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "파일이 없습니다 (field: file)", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	tmp, err := os.CreateTemp("", "ncp-nuke-*.xlsx")
+	if err != nil {
+		http.Error(w, "임시 파일 생성 실패: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := io.Copy(tmp, file); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		http.Error(w, "파일 저장 실패: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tmp.Close()
+
+	accounts, err := excel.ReadAccounts(tmp.Name())
+	if err != nil {
+		os.Remove(tmp.Name())
+		http.Error(w, "엑셀 파싱 실패: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	if s.filePath != "" && strings.Contains(s.filePath, "ncp-nuke-") {
+		os.Remove(s.filePath) // clean up a previously uploaded temp file
+	}
+	s.accounts = accounts
+	s.filePath = tmp.Name()
+	s.mu.Unlock()
+
+	s.listAccounts(w)
+}
+
+// handleEnv tells the frontend whether it is running inside the desktop app
+// (so it can use native file dialogs instead of browser upload/download).
+func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"desktop": s.Desktop})
+}
+
+// handlePickAccounts (desktop) opens a native file chooser, loads the picked
+// .xlsx, and replaces the in-memory accounts.
+func (s *Server) handlePickAccounts(w http.ResponseWriter, r *http.Request) {
+	if !s.Desktop {
+		http.Error(w, "데스크톱 모드에서만 사용 가능", http.StatusBadRequest)
+		return
+	}
+	path, cancelled, err := chooseFileDialog()
+	if cancelled {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		http.Error(w, "파일 선택 실패: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	accounts, err := excel.ReadAccounts(path)
+	if err != nil {
+		http.Error(w, "엑셀 파싱 실패: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	s.accounts = accounts
+	s.filePath = path // their real file — "계정 추가" appends back here
+	s.mu.Unlock()
+	s.listAccounts(w)
+}
+
+// handleSaveTemplate (desktop) writes the template to a folder the user picks
+// (falls back to ~/Downloads) and returns the saved path.
+func (s *Server) handleSaveTemplate(w http.ResponseWriter, r *http.Request) {
+	if !s.Desktop {
+		http.Error(w, "데스크톱 모드에서만 사용 가능", http.StatusBadRequest)
+		return
+	}
+	dir, cancelled, err := chooseFolderDialog()
+	if cancelled {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil || dir == "" {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, "Downloads")
+	}
+	dest := filepath.Join(dir, "accounts_template.xlsx")
+	if err := excel.WriteTemplate(dest); err != nil {
+		http.Error(w, "템플릿 저장 실패: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"path": dest})
+}
+
+// chooseFileDialog shows a native macOS file picker for .xlsx files.
+func chooseFileDialog() (path string, cancelled bool, err error) {
+	out, e := exec.Command("osascript", "-e",
+		`POSIX path of (choose file with prompt "계정 엑셀 파일 선택" of type {"xlsx","org.openxmlformats.spreadsheetml.sheet"})`).Output()
+	if e != nil {
+		// osascript exits non-zero when the user cancels.
+		return "", true, nil
+	}
+	return strings.TrimSpace(string(out)), false, nil
+}
+
+// chooseFolderDialog shows a native macOS folder picker.
+func chooseFolderDialog() (dir string, cancelled bool, err error) {
+	out, e := exec.Command("osascript", "-e",
+		`POSIX path of (choose folder with prompt "템플릿을 저장할 폴더 선택")`).Output()
+	if e != nil {
+		return "", true, nil
+	}
+	return strings.TrimSpace(string(out)), false, nil
+}
+
+// handleTemplate serves the accounts Excel template as a download.
+func (s *Server) handleTemplate(w http.ResponseWriter, r *http.Request) {
+	b, err := excel.TemplateBytes()
+	if err != nil {
+		http.Error(w, "템플릿 생성 실패: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", `attachment; filename="accounts_template.xlsx"`)
+	w.Write(b)
 }
 
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
@@ -151,30 +311,49 @@ func (s *Server) addAccount(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type runRequest struct {
-	Selected []int  `json:"selected"`
-	Action   string `json:"action"` // activate | deactivate | nuke | list
-	Password string `json:"password"`
-	Cleanup  bool   `json:"cleanup"`
-	Confirm  string `json:"confirm"`
+func (s *Server) selectedMap(idxs []int) map[int]bool {
+	m := make(map[int]bool)
+	for _, idx := range idxs {
+		if idx >= 0 && idx < len(s.accounts) {
+			m[idx] = true
+		}
+	}
+	return m
 }
 
-// handleRun streams progress as Server-Sent Events.
-func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
+// --- Scan: list resources for the selected accounts ---
+
+type scanRequest struct {
+	Selected []int `json:"selected"`
+}
+
+type resourceCountDTO struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+}
+
+type itemDTO struct {
+	Account string `json:"account"`
+	Name    string `json:"name"`
+	ID      string `json:"id"`
+}
+
+type scanResponse struct {
+	Accounts []string             `json:"accounts"`
+	Types    []resourceCountDTO   `json:"types"`
+	Warnings []string             `json:"warnings"`
+	Details  map[string][]itemDTO `json:"details"` // resource type key -> items across accounts
+}
+
+// handleScan aggregates resource counts (by type) across the selected accounts.
+func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	var req runRequest
+	var req scanRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "잘못된 요청: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	switch req.Action {
-	case "activate", "deactivate", "nuke", "list":
-	default:
-		http.Error(w, "알 수 없는 작업: "+req.Action, http.StatusBadRequest)
 		return
 	}
 	if len(req.Selected) == 0 {
@@ -182,9 +361,126 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Destructive actions require the exact confirmation phrase.
-	destructive := req.Action == "nuke" || (req.Action == "deactivate" && req.Cleanup)
-	if destructive && req.Confirm != confirmPhrase {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	selected := s.selectedMap(req.Selected)
+
+	// Collect the accounts to scan (preserving order for deterministic output).
+	type acctScan struct {
+		name    string
+		summary *ncp.ResourceSummary
+		errs    []error
+	}
+	var jobs []*acctScan
+	for i, acc := range s.accounts {
+		if selected[i] {
+			jobs = append(jobs, &acctScan{name: acc.AccountName})
+		}
+	}
+
+	// Scan each account in parallel — each makes its own (sequential) set of
+	// resource list calls with an independent client.
+	var wg sync.WaitGroup
+	idx := 0
+	for i, acc := range s.accounts {
+		if !selected[i] {
+			continue
+		}
+		job := jobs[idx]
+		idx++
+		wg.Add(1)
+		go func(a ncp.RootAccount, j *acctScan) {
+			defer wg.Done()
+			client := ncp.NewClient(a.AccessKey, a.SecretKey)
+			j.summary, j.errs = client.ListAllResources()
+		}(acc, job)
+	}
+	wg.Wait()
+
+	// Aggregate in account order so type ordering is stable.
+	counts := map[string]int{}
+	var order []string
+	var names []string
+	var warnings []string
+	details := map[string][]itemDTO{}
+	for _, j := range jobs {
+		names = append(names, j.name)
+		for _, e := range j.errs {
+			warnings = append(warnings, friendlyScanErr(j.name, e))
+		}
+		if j.summary == nil {
+			continue
+		}
+		for _, bc := range j.summary.Breakdown() {
+			if _, ok := counts[bc.Name]; !ok {
+				order = append(order, bc.Name)
+			}
+			counts[bc.Name] += bc.Count
+		}
+		for typeName, items := range j.summary.Items() {
+			for _, it := range items {
+				details[typeName] = append(details[typeName], itemDTO{Account: j.name, Name: it.Name, ID: it.ID})
+			}
+		}
+	}
+
+	resp := scanResponse{Accounts: names, Warnings: warnings, Details: details}
+	for _, k := range order {
+		resp.Types = append(resp.Types, resourceCountDTO{Key: k, Count: counts[k]})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func friendlyScanErr(account string, e error) string {
+	msg := e.Error()
+	for _, sig := range []string{"HTTP 403", "StatusCode: 403", "AccessDenied", "InvalidAccessKeyId"} {
+		if strings.Contains(msg, sig) {
+			return fmt.Sprintf("[%s] 권한 없음/미사용: %v", account, e)
+		}
+	}
+	return fmt.Sprintf("[%s] %v", account, e)
+}
+
+// --- Execute: optional sub-account action + delete of selected resource types ---
+
+type executeRequest struct {
+	Selected    []int    `json:"selected"`
+	SubAction   string   `json:"subAction"` // none | activate | deactivate
+	Password    string   `json:"password"`
+	DeleteTypes []string `json:"deleteTypes"` // resource type keys (Breakdown names)
+	Confirm     string   `json:"confirm"`
+}
+
+func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req executeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "잘못된 요청: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(req.Selected) == 0 {
+		http.Error(w, "선택된 계정이 없습니다", http.StatusBadRequest)
+		return
+	}
+	switch req.SubAction {
+	case "", "none", "activate", "deactivate":
+	default:
+		http.Error(w, "알 수 없는 서브계정 작업: "+req.SubAction, http.StatusBadRequest)
+		return
+	}
+	if req.SubAction == "" {
+		req.SubAction = "none"
+	}
+	if len(req.DeleteTypes) == 0 && req.SubAction == "none" {
+		http.Error(w, "수행할 작업이 없습니다 (삭제할 리소스 또는 서브계정 작업을 선택하세요)", http.StatusBadRequest)
+		return
+	}
+	if len(req.DeleteTypes) > 0 && req.Confirm != confirmPhrase {
 		http.Error(w, fmt.Sprintf("삭제 확인 문구가 일치하지 않습니다. \"%s\" 를 정확히 입력하세요.", confirmPhrase), http.StatusBadRequest)
 		return
 	}
@@ -198,21 +494,10 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	selected := make(map[int]bool)
-	for _, idx := range req.Selected {
-		if idx >= 0 && idx < len(s.accounts) {
-			selected[idx] = true
-		}
-	}
-
-	// Serialize runs so concurrent destructive operations don't interleave.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Each runner log line becomes a structured event. Lines are grouped by the
-	// resource they refer to (Server, NAT Gateway, ...) rather than by step. The
-	// resource is detected from keywords; lines without a keyword stick to the
-	// most recently seen resource. "currentResource" carries that state.
+	selected := s.selectedMap(req.Selected)
 	currentResource := ""
 	send := func(line string) {
 		ev := classifyLine(line, &currentResource)
@@ -224,13 +509,67 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	runner.Process(s.accounts, selected, req.Action, req.Password, req.Cleanup, s.cfg, send)
+	// 1) Sub-account action (independent of resource deletion).
+	if req.SubAction == "activate" || req.SubAction == "deactivate" {
+		runner.Process(s.accounts, selected, req.SubAction, req.Password, false, nil, send)
+		currentResource = ""
+	}
+
+	// 2) Delete only the selected resource types (nuke with a filter that disables
+	//    every other type).
+	if len(req.DeleteTypes) > 0 {
+		cfg := buildDeleteConfig(req.DeleteTypes)
+		runner.Process(s.accounts, selected, "nuke", "", false, cfg, send)
+	}
+
 	fmt.Fprint(w, "event: done\ndata: end\n\n")
 	flusher.Flush()
 }
 
+// buildDeleteConfig returns a config that enables ONLY the given resource types
+// (by Breakdown name) and disables all others, so a nuke deletes just those.
+func buildDeleteConfig(types []string) *config.Config {
+	want := make(map[string]bool, len(types))
+	for _, t := range types {
+		want[t] = true
+	}
+	disabled := func(name string) config.ResourceFilter {
+		on := want[name]
+		return config.ResourceFilter{Enabled: &on}
+	}
+	return &config.Config{
+		Servers:               disabled("Server"),
+		BlockStorages:         disabled("Block Storage"),
+		BlockStorageSnapshots: disabled("Block Storage Snapshot"),
+		PublicIps:             disabled("Public IP"),
+		NasVolumes:            disabled("NAS Volume"),
+		NasVolumeSnapshots:    disabled("NAS Volume Snapshot"),
+		LoadBalancers:         disabled("Load Balancer"),
+		TargetGroups:          disabled("Target Group"),
+		CloudDBs:              disabled("Cloud DB"),
+		CloudPostgresqls:      disabled("Cloud PostgreSQL"),
+		CloudMongoDBs:         disabled("Cloud MongoDB"),
+		CloudMariaDBs:         disabled("Cloud MariaDB"),
+		CloudMySQLs:           disabled("Cloud MySQL"),
+		CloudRedises:          disabled("Cloud Redis"),
+		Vpcs:                  disabled("VPC"),
+		Subnets:               disabled("Subnet"),
+		NatGateways:           disabled("NAT Gateway"),
+		VpcPeerings:           disabled("VPC Peering"),
+		NetworkAcls:           disabled("Network ACL"),
+		AccessControlGroups:   disabled("Access Control Group"),
+		AutoScalingGroups:     disabled("Auto Scaling Group"),
+		LaunchConfigurations:  disabled("Launch Configuration"),
+		NksClusters:           disabled("NKS Cluster"),
+		InitScripts:           disabled("Init Script"),
+		LoginKeys:             disabled("Login Key"),
+		PlacementGroups:       disabled("Placement Group"),
+		Buckets:               disabled("Object Storage Bucket"),
+	}
+}
+
 type progressEvent struct {
-	Type     string `json:"type"`     // account | global | resource
+	Type     string `json:"type"` // account | global | resource
 	Text     string `json:"text"`
 	Resource string `json:"resource"` // section title for type=resource
 	Depth    int    `json:"depth"`
@@ -276,7 +615,7 @@ func classifyLine(line string, currentResource *string) progressEvent {
 func detectResource(t string) string {
 	switch {
 	case strings.Contains(t, "Object Storage") || strings.Contains(t, "버킷"):
-		return "Object Storage"
+		return "Object Storage Bucket"
 	case strings.Contains(t, "NKS"):
 		return "NKS Cluster"
 	case strings.Contains(t, "Auto Scaling"):
@@ -300,7 +639,7 @@ func detectResource(t string) string {
 	case strings.Contains(t, "Target Group"):
 		return "Target Group"
 	case strings.Contains(t, "NAS 스냅샷") || strings.Contains(t, "NAS Volume Snapshot"):
-		return "NAS Snapshot"
+		return "NAS Volume Snapshot"
 	case strings.Contains(t, "NAS"):
 		return "NAS Volume"
 	case strings.Contains(t, "Block Storage") || strings.Contains(t, "블록 스토리지") || strings.Contains(t, "스토리지"):
