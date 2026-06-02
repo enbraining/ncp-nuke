@@ -11,6 +11,9 @@ import (
 // psDialog runs a PowerShell WinForms dialog with the console window hidden
 // (CREATE_NO_WINDOW) so only the GUI dialog appears.
 func psDialog(script string) (result string, cancelled bool, err error) {
+	// Force UTF-8 stdout so Korean (non-ASCII) file paths are not mangled by the
+	// console's default OEM code page (e.g. CP949).
+	script = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ` + script
 	cmd := exec.Command("powershell", "-NoProfile", "-STA", "-Command", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 	out, e := cmd.Output()
