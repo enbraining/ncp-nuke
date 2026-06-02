@@ -9,9 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -198,64 +196,8 @@ func (s *Server) handleSaveTemplate(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"path": dest})
 }
 
-// chooseFileDialog shows a native OS file picker for .xlsx files.
-func chooseFileDialog() (path string, cancelled bool, err error) {
-	switch runtime.GOOS {
-	case "darwin":
-		out, e := exec.Command("osascript", "-e",
-			`POSIX path of (choose file with prompt "계정 엑셀 파일 선택" of type {"xlsx","org.openxmlformats.spreadsheetml.sheet"})`).Output()
-		if e != nil { // osascript exits non-zero on cancel
-			return "", true, nil
-		}
-		return strings.TrimSpace(string(out)), false, nil
-	case "windows":
-		ps := `Add-Type -AssemblyName System.Windows.Forms; ` +
-			`$f = New-Object System.Windows.Forms.OpenFileDialog; ` +
-			`$f.Filter = 'Excel (*.xlsx)|*.xlsx|All files (*.*)|*.*'; ` +
-			`if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($f.FileName) }`
-		out, e := exec.Command("powershell", "-NoProfile", "-STA", "-Command", ps).Output()
-		if e != nil {
-			return "", false, e
-		}
-		p := strings.TrimSpace(string(out))
-		return p, p == "", nil
-	default:
-		out, e := exec.Command("zenity", "--file-selection", "--title=계정 엑셀 파일 선택", "--file-filter=*.xlsx").Output()
-		if e != nil {
-			return "", true, nil
-		}
-		return strings.TrimSpace(string(out)), false, nil
-	}
-}
-
-// chooseFolderDialog shows a native OS folder picker.
-func chooseFolderDialog() (dir string, cancelled bool, err error) {
-	switch runtime.GOOS {
-	case "darwin":
-		out, e := exec.Command("osascript", "-e",
-			`POSIX path of (choose folder with prompt "템플릿을 저장할 폴더 선택")`).Output()
-		if e != nil {
-			return "", true, nil
-		}
-		return strings.TrimSpace(string(out)), false, nil
-	case "windows":
-		ps := `Add-Type -AssemblyName System.Windows.Forms; ` +
-			`$f = New-Object System.Windows.Forms.FolderBrowserDialog; ` +
-			`if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($f.SelectedPath) }`
-		out, e := exec.Command("powershell", "-NoProfile", "-STA", "-Command", ps).Output()
-		if e != nil {
-			return "", false, e
-		}
-		p := strings.TrimSpace(string(out))
-		return p, p == "", nil
-	default:
-		out, e := exec.Command("zenity", "--file-selection", "--directory", "--title=템플릿 저장 폴더 선택").Output()
-		if e != nil {
-			return "", true, nil
-		}
-		return strings.TrimSpace(string(out)), false, nil
-	}
-}
+// chooseFileDialog / chooseFolderDialog are implemented per-OS in
+// dialog_{windows,darwin,other}.go.
 
 // handleTemplate serves the accounts Excel template as a download.
 func (s *Server) handleTemplate(w http.ResponseWriter, r *http.Request) {
