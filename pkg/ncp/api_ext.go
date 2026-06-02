@@ -746,8 +746,8 @@ func (c *Client) ListTargetGroups() ([]TargetGroup, error) {
 func (c *Client) DeleteTargetGroup(targetGroupNo string) error {
 	params := url.Values{}
 	params.Set("responseFormatType", "json")
-	params.Set("targetGroupNo", targetGroupNo)
-	path := "/deleteTargetGroup?" + params.Encode()
+	params.Set("targetGroupNoList.1", targetGroupNo)
+	path := "/deleteTargetGroups?" + params.Encode()
 	body, status, err := c.doRequestWithBase(VLBBaseURL, "GET", path, nil)
 	if err != nil {
 		return err
