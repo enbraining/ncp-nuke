@@ -318,9 +318,10 @@ func (c *Client) ListAccessControlGroups() ([]AccessControlGroup, error) {
 	return resp.Response.AccessControlGroupList, nil
 }
 
-func (c *Client) DeleteAccessControlGroup(acgNo string) error {
+func (c *Client) DeleteAccessControlGroup(vpcNo, acgNo string) error {
 	params := url.Values{}
 	params.Set("responseFormatType", "json")
+	params.Set("vpcNo", vpcNo)
 	params.Set("accessControlGroupNo", acgNo)
 	path := "/deleteAccessControlGroup?" + params.Encode()
 	body, status, err := c.doRequestWithBase(VServerBaseURL, "GET", path, nil)

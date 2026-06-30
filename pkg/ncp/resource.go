@@ -863,20 +863,20 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 	}
 
 	// 16. Access Control Groups (skip default - deleted with VPC)
-	var acgsToDelete []string
+	var acgsToDelete []AccessControlGroup
 	for _, acg := range summary.AccessControlGroups {
 		if !acg.IsDefault {
-			acgsToDelete = append(acgsToDelete, acg.AccessControlGroupNo)
+			acgsToDelete = append(acgsToDelete, acg)
 		}
 	}
 	if len(acgsToDelete) > 0 {
 		logFn(fmt.Sprintf("  ACG %d개 삭제 중 (Default 제외)...", len(acgsToDelete)))
-		for _, acgNo := range acgsToDelete {
-			if err := c.DeleteAccessControlGroup(acgNo); err != nil {
-				logFn(fmt.Sprintf("    [실패] ACG(%s) 삭제: %v", acgNo, err))
+		for _, acg := range acgsToDelete {
+			if err := c.DeleteAccessControlGroup(acg.VpcNo, acg.AccessControlGroupNo); err != nil {
+				logFn(fmt.Sprintf("    [실패] ACG(%s) 삭제: %v", acg.AccessControlGroupName, err))
 				fail++
 			} else {
-				logFn(fmt.Sprintf("    [성공] ACG(%s) 삭제", acgNo))
+				logFn(fmt.Sprintf("    [성공] ACG(%s) 삭제", acg.AccessControlGroupName))
 				success++
 			}
 		}
