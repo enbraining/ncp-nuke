@@ -253,27 +253,48 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := selfupdate.Apply(resp.Body, selfupdate.Options{}); err != nil {
-		if rerr := selfupdate.RollbackError(err); rerr != nil {
-			http.Error(w, "업데이트 적용 실패(롤백됨): "+rerr.Error(), http.StatusInternalServerError)
-			return
+	// Save to a temp file so we can fall back to an elevated replace if the
+	// in-place update fails on permissions (protected install location).
+	tmp, err := os.CreateTemp("", "ncp-nuke-update-*")
+	if err != nil {
+		http.Error(w, "임시 파일 생성 실패: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tmpPath := tmp.Name()
+	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		tmp.Close()
+		http.Error(w, "다운로드 저장 실패: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tmp.Close()
+	os.Chmod(tmpPath, 0o755)
+
+	ok := func(elevated bool) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "latest": strings.TrimPrefix(rel.TagName, "v"), "elevated": elevated})
+		if f, fok := w.(http.Flusher); fok {
+			f.Flush()
 		}
-		http.Error(w, "업데이트 적용 실패: "+err.Error(), http.StatusInternalServerError)
+	}
+
+	// 1) In-place replace (works when the install location is writable).
+	f, _ := os.Open(tmpPath)
+	applyErr := selfupdate.Apply(f, selfupdate.Options{})
+	f.Close()
+	if applyErr == nil {
+		ok(false)
+		go func() { time.Sleep(800 * time.Millisecond); relaunchApp(); os.Exit(0) }()
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"ok": true, "latest": strings.TrimPrefix(rel.TagName, "v")})
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
+	// 2) Permission failure → elevate (admin / UAC) and replace + relaunch.
+	if elevErr := elevatedReplaceAndRelaunch(tmpPath); elevErr == nil {
+		ok(true)
+		go func() { time.Sleep(800 * time.Millisecond); os.Exit(0) }()
+		return
+	} else {
+		http.Error(w, "업데이트 적용 실패 (인플레이스: "+applyErr.Error()+" / 권한상승: "+elevErr.Error()+")", http.StatusInternalServerError)
 	}
-
-	// Relaunch the (now-updated) app and exit.
-	go func() {
-		time.Sleep(800 * time.Millisecond)
-		relaunchApp()
-		os.Exit(0)
-	}()
 }
 
 // matchOSAsset picks the release asset matching the current OS.

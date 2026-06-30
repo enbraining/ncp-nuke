@@ -55,3 +55,28 @@ func openURL(url string) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	return cmd.Start()
 }
+
+// elevatedReplaceAndRelaunch spawns an elevated (UAC) helper that waits for this
+// process to exit, replaces the running exe with src, and relaunches it.
+func elevatedReplaceAndRelaunch(src string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	bat, err := os.CreateTemp("", "ncp-nuke-update-*.bat")
+	if err != nil {
+		return err
+	}
+	script := "@echo off\r\n" +
+		"timeout /t 2 /nobreak >nul\r\n" +
+		"copy /y \"" + src + "\" \"" + exe + "\" >nul\r\n" +
+		"start \"\" \"" + exe + "\"\r\n" +
+		"del \"%~f0\"\r\n"
+	bat.WriteString(script)
+	bat.Close()
+	// Run the batch elevated (UAC prompt).
+	ps := `Start-Process -FilePath cmd -ArgumentList '/c','"` + bat.Name() + `"' -Verb RunAs -WindowStyle Hidden`
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", ps)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	return cmd.Run()
+}

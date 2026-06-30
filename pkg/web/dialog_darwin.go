@@ -41,3 +41,20 @@ func chooseFolderDialog() (dir string, cancelled bool, err error) {
 
 // openURL opens a URL in the default browser.
 func openURL(url string) error { return exec.Command("open", url).Start() }
+
+// elevatedReplaceAndRelaunch copies the new binary (src) over the running
+// executable with administrator privileges (osascript prompts for password),
+// then relaunches the app. Used when the install location isn't user-writable.
+func elevatedReplaceAndRelaunch(src string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	shell := `cp -f "` + src + `" "` + exe + `" && chmod +x "` + exe + `"`
+	as := `do shell script "` + strings.ReplaceAll(shell, `"`, `\"`) + `" with administrator privileges`
+	if err := exec.Command("osascript", "-e", as).Run(); err != nil {
+		return err
+	}
+	relaunchApp()
+	return nil
+}
