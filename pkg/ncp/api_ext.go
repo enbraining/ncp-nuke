@@ -1,6 +1,7 @@
 package ncp
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -852,6 +853,46 @@ func (c *Client) DeleteNasVolumeSnapshot(snapshotInstanceNo string) error {
 		return err
 	}
 	if status != 200 {
+		return fmt.Errorf("HTTP %d - %s", status, string(body))
+	}
+	return nil
+}
+
+// --- API Gateway (Product) ---
+
+// ListApiGatewayProducts lists API Gateway products. Endpoint: GET /products
+// (host apigateway.apigw.ntruss.com). Empty/no-tenant accounts return none.
+func (c *Client) ListApiGatewayProducts() ([]ApiGatewayProduct, error) {
+	path := "/products?offset=0&limit=200"
+	body, status, err := c.doRequestWithBase(APIGatewayBaseURL, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	// tenantId-not-found (10008) on a 404 just means no API Gateway here.
+	if status == 404 && bytes.Contains(body, []byte("10008")) {
+		return nil, nil
+	}
+	if status != 200 {
+		return nil, fmt.Errorf("HTTP %d - %s", status, string(body))
+	}
+	var resp struct {
+		Products []ApiGatewayProduct `json:"products"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+	return resp.Products, nil
+}
+
+// DeleteApiGatewayProduct deletes an API Gateway product. Endpoint:
+// DELETE /products/{productId}.
+func (c *Client) DeleteApiGatewayProduct(productID string) error {
+	path := "/products/" + productID
+	body, status, err := c.doRequestWithBase(APIGatewayBaseURL, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+	if status != 200 && status != 204 {
 		return fmt.Errorf("HTTP %d - %s", status, string(body))
 	}
 	return nil

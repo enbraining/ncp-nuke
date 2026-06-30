@@ -398,4 +398,12 @@ func applyFilter(summary *ncp.ResourceSummary, cfg *config.Config) {
 		}
 	}
 	summary.Buckets = buckets
+
+	var apigw []ncp.ApiGatewayProduct
+	for _, s := range summary.ApiGatewayProducts {
+		if cfg.ApiGatewayProducts.Match(s.ProductName, s.ProductId) {
+			apigw = append(apigw, s)
+		}
+	}
+	summary.ApiGatewayProducts = apigw
 }

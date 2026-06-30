@@ -759,6 +759,7 @@ func buildDeleteConfig(targets map[string][]string) *config.Config {
 		LoginKeys:             disabled("Login Key"),
 		PlacementGroups:       disabled("Placement Group"),
 		Buckets:               disabled("Object Storage Bucket"),
+		ApiGatewayProducts:    disabled("API Gateway Product"),
 	}
 }
 
@@ -809,6 +810,8 @@ func classifyLine(line string, currentResource *string) progressEvent {
 // matters: more specific keywords are checked before broader ones.
 func detectResource(t string) string {
 	switch {
+	case strings.Contains(t, "API Gateway"):
+		return "API Gateway Product"
 	case strings.Contains(t, "Object Storage") || strings.Contains(t, "버킷"):
 		return "Object Storage Bucket"
 	case strings.Contains(t, "NKS"):

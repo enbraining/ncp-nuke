@@ -319,3 +319,9 @@ type getBlockStorageSnapshotInstanceListResponse struct {
 type getNasVolumeSnapshotListResponse struct {
 	NasVolumeSnapshotList []NasVolumeSnapshot `json:"nasVolumeSnapshotList"`
 }
+
+// ApiGatewayProduct represents an API Gateway product.
+type ApiGatewayProduct struct {
+	ProductId   string `json:"productId"`
+	ProductName string `json:"productName"`
+}

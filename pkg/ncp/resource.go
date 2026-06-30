@@ -38,6 +38,7 @@ type ResourceSummary struct {
 	LoginKeys               []LoginKey
 	PlacementGroups         []PlacementGroup
 	Buckets                 []Bucket
+	ApiGatewayProducts      []ApiGatewayProduct
 }
 
 // TotalCount returns total number of resources.
@@ -52,7 +53,7 @@ func (r *ResourceSummary) TotalCount() int {
 		len(r.AccessControlGroups) + len(r.AutoScalingGroups) +
 		len(r.LaunchConfigurations) + len(r.NksClusters) +
 		len(r.InitScripts) + len(r.LoginKeys) + len(r.PlacementGroups) +
-		len(r.Buckets)
+		len(r.Buckets) + len(r.ApiGatewayProducts)
 }
 
 // ResourceCount is a single category's resource count for display.
@@ -93,6 +94,7 @@ func (r *ResourceSummary) Breakdown() []ResourceCount {
 		{"Login Key", len(r.LoginKeys)},
 		{"Placement Group", len(r.PlacementGroups)},
 		{"Object Storage Bucket", len(r.Buckets)},
+		{"API Gateway Product", len(r.ApiGatewayProducts)},
 	}
 	var out []ResourceCount
 	for _, c := range all {
@@ -198,6 +200,9 @@ func (r *ResourceSummary) Items() map[string][]ResourceItem {
 	}
 	for _, x := range r.Buckets {
 		add("Object Storage Bucket", x.Name, "")
+	}
+	for _, x := range r.ApiGatewayProducts {
+		add("API Gateway Product", x.ProductName, x.ProductId)
 	}
 	return m
 }
@@ -478,6 +483,13 @@ func (c *Client) ListAllResources() (*ResourceSummary, []error) {
 		errs = append(errs, fmt.Errorf("Object Storage 조회: %w", err))
 	} else {
 		summary.Buckets = buckets
+	}
+
+	// 10. API Gateway
+	if products, err := c.ListApiGatewayProducts(); err != nil {
+		errs = append(errs, fmt.Errorf("API Gateway 조회: %w", err))
+	} else {
+		summary.ApiGatewayProducts = products
 	}
 
 	return summary, errs
@@ -1026,6 +1038,18 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 	for _, b := range summary.Buckets {
 		logFn(fmt.Sprintf("  Object Storage 버킷 비우기/삭제: %s", b.Name))
 		if err := c.DeleteBucket(b.Name, logFn); err != nil {
+			logFn(fmt.Sprintf("    [실패] %v", err))
+			fail++
+		} else {
+			logFn("    [성공]")
+			success++
+		}
+	}
+
+	// 24. API Gateway Products
+	for _, p := range summary.ApiGatewayProducts {
+		logFn(fmt.Sprintf("  API Gateway Product 삭제: %s (%s)", p.ProductName, p.ProductId))
+		if err := c.DeleteApiGatewayProduct(p.ProductId); err != nil {
 			logFn(fmt.Sprintf("    [실패] %v", err))
 			fail++
 		} else {
