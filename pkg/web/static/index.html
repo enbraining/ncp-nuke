@@ -445,11 +445,23 @@ async function checkUpdate() {
     btn.style.display = '';
     btn.onclick = async () => {
       const url = u.downloadUrl || u.htmlUrl;
-      if (DESKTOP) {
-        try { await fetch('/api/open-url', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})}); }
-        catch(_) {}
-      } else {
-        window.open(url, '_blank');
+      if (!DESKTOP) { window.open(url, '_blank'); return; }
+      // Desktop: update in place, then the app relaunches itself.
+      btn.disabled = true;
+      const orig = btn.innerHTML;
+      btn.innerHTML = `${icon('ti-loader-2 spin')} 업데이트 중...`;
+      try {
+        const res = await fetch('/api/update/apply', {method:'POST'});
+        if (res.ok) {
+          btn.innerHTML = `${icon('ti-check')} 업데이트 완료 — 재시작 중...`;
+          return; // backend relaunches & exits; this window will close
+        }
+        // fall back to opening the download page
+        try { await fetch('/api/open-url', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})}); } catch(_) {}
+        btn.innerHTML = orig; btn.disabled = false;
+      } catch(_) {
+        try { await fetch('/api/open-url', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})}); } catch(_) {}
+        btn.innerHTML = orig; btn.disabled = false;
       }
     };
   } catch(_) {}

@@ -20,6 +20,8 @@ import (
 	"ncp-nuke/pkg/ncp"
 	"ncp-nuke/pkg/runner"
 	"ncp-nuke/pkg/version"
+
+	"github.com/minio/selfupdate"
 )
 
 //go:embed static/*
@@ -78,6 +80,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/desktop/save-template", s.handleSaveTemplate)
 	mux.HandleFunc("/api/env", s.handleEnv)
 	mux.HandleFunc("/api/update/check", s.handleUpdateCheck)
+	mux.HandleFunc("/api/update/apply", s.handleUpdateApply)
 	mux.HandleFunc("/api/open-url", s.handleOpenURL)
 	mux.HandleFunc("/api/scan", s.handleScan)
 	mux.HandleFunc("/api/execute", s.handleExecute)
@@ -148,35 +151,42 @@ func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"desktop": s.Desktop, "version": version.Version})
 }
 
-// handleUpdateCheck queries the latest GitHub release and reports whether an
-// update is available, with an OS-appropriate download URL.
-func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
-	cli := &http.Client{Timeout: 8 * time.Second}
+type ghRelease struct {
+	TagName string `json:"tag_name"`
+	HTMLURL string `json:"html_url"`
+	Assets  []struct {
+		Name string `json:"name"`
+		URL  string `json:"browser_download_url"`
+	} `json:"assets"`
+}
+
+func fetchLatestRelease() (*ghRelease, error) {
+	cli := &http.Client{Timeout: 10 * time.Second}
 	req, _ := http.NewRequest("GET", "https://api.github.com/repos/"+version.Repo+"/releases/latest", nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := cli.Do(req)
 	if err != nil {
-		http.Error(w, "업데이트 확인 실패: "+err.Error(), http.StatusBadGateway)
-		return
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		http.Error(w, fmt.Sprintf("GitHub 응답 %d", resp.StatusCode), http.StatusBadGateway)
-		return
+		return nil, fmt.Errorf("GitHub 응답 %d", resp.StatusCode)
 	}
-	var rel struct {
-		TagName string `json:"tag_name"`
-		HTMLURL string `json:"html_url"`
-		Assets  []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
+	var rel ghRelease
 	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		http.Error(w, "응답 파싱 실패: "+err.Error(), http.StatusBadGateway)
+		return nil, err
+	}
+	return &rel, nil
+}
+
+// handleUpdateCheck queries the latest GitHub release and reports whether an
+// update is available, with an OS-appropriate download URL.
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	rel, err := fetchLatestRelease()
+	if err != nil {
+		http.Error(w, "업데이트 확인 실패: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-
 	latest := strings.TrimPrefix(rel.TagName, "v")
 	download := rel.HTMLURL
 	for _, a := range rel.Assets {
@@ -192,7 +202,78 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		"updateAvailable": semverLess(version.Version, latest),
 		"htmlUrl":         rel.HTMLURL,
 		"downloadUrl":     download,
+		"canSelfUpdate":   s.Desktop,
 	})
+}
+
+// selfUpdateAsset matches the raw binary asset used for in-place self-update.
+func selfUpdateAsset(name string) bool {
+	switch runtime.GOOS {
+	case "darwin":
+		return strings.HasSuffix(name, "_darwin_universal.bin")
+	case "windows":
+		return strings.HasSuffix(name, "_windows_amd64.exe") && !strings.Contains(name, "_setup")
+	}
+	return false
+}
+
+// handleUpdateApply downloads the latest raw binary and replaces the running
+// executable in place, then relaunches the app. Desktop-only.
+func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+	if !s.Desktop {
+		http.Error(w, "데스크톱 모드에서만 사용 가능", http.StatusBadRequest)
+		return
+	}
+	rel, err := fetchLatestRelease()
+	if err != nil {
+		http.Error(w, "업데이트 확인 실패: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	assetURL := ""
+	for _, a := range rel.Assets {
+		if selfUpdateAsset(a.Name) {
+			assetURL = a.URL
+			break
+		}
+	}
+	if assetURL == "" {
+		http.Error(w, "이 플랫폼용 자동 업데이트 파일을 찾을 수 없습니다", http.StatusNotFound)
+		return
+	}
+
+	cli := &http.Client{Timeout: 120 * time.Second}
+	resp, err := cli.Get(assetURL)
+	if err != nil {
+		http.Error(w, "다운로드 실패: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		http.Error(w, fmt.Sprintf("다운로드 응답 %d", resp.StatusCode), http.StatusBadGateway)
+		return
+	}
+
+	if err := selfupdate.Apply(resp.Body, selfupdate.Options{}); err != nil {
+		if rerr := selfupdate.RollbackError(err); rerr != nil {
+			http.Error(w, "업데이트 적용 실패(롤백됨): "+rerr.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Error(w, "업데이트 적용 실패: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ok": true, "latest": strings.TrimPrefix(rel.TagName, "v")})
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	// Relaunch the (now-updated) app and exit.
+	go func() {
+		time.Sleep(800 * time.Millisecond)
+		relaunchApp()
+		os.Exit(0)
+	}()
 }
 
 // matchOSAsset picks the release asset matching the current OS.

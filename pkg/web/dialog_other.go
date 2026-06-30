@@ -3,9 +3,17 @@
 package web
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 )
+
+// relaunchApp restarts the app after a self-update.
+func relaunchApp() {
+	if exe, err := os.Executable(); err == nil {
+		exec.Command(exe).Start()
+	}
+}
 
 func chooseFileDialog() (path string, cancelled bool, err error) {
 	out, e := exec.Command("zenity", "--file-selection", "--title=계정 엑셀 파일 선택", "--file-filter=*.xlsx").Output()

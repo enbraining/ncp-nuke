@@ -3,10 +3,22 @@
 package web
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"syscall"
 )
+
+// relaunchApp restarts the app after a self-update (no console window).
+func relaunchApp() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(exe)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	cmd.Start()
+}
 
 // psDialog runs a PowerShell WinForms dialog with the console window hidden
 // (CREATE_NO_WINDOW) so only the GUI dialog appears.

@@ -41,6 +41,8 @@ codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
 STAGE="$(mktemp -d)"; cp -R "$APP" "$STAGE/"; ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "NCP Nuke" -srcfolder "$STAGE" -ov -format UDZO "dist/NCP-Nuke_${V}_macOS_universal.dmg" >/dev/null
 rm -rf "$STAGE" "$APP"
+# Raw universal binary for in-app self-update (selfupdate replaces this file).
+cp /tmp/d-univ "dist/NCP-Nuke_${V}_darwin_universal.bin"
 
 echo "[2/4] Windows GUI exe (mingw cross-compile)"
 CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ \

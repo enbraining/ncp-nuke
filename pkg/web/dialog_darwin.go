@@ -3,9 +3,23 @@
 package web
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 )
+
+// relaunchApp restarts the app after a self-update (re-opens the .app bundle).
+func relaunchApp() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	if i := strings.Index(exe, ".app/"); i >= 0 {
+		exec.Command("open", "-n", exe[:i+4]).Start()
+		return
+	}
+	exec.Command(exe).Start()
+}
 
 func chooseFileDialog() (path string, cancelled bool, err error) {
 	out, e := exec.Command("osascript", "-e",

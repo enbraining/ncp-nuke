@@ -9,12 +9,14 @@ require (
 	github.com/charmbracelet/bubbles v0.18.0
 	github.com/charmbracelet/bubbletea v0.26.4
 	github.com/charmbracelet/lipgloss v0.11.0
+	github.com/minio/selfupdate v0.6.0
 	github.com/spf13/cobra v1.8.1
 	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
 	github.com/xuri/excelize/v2 v2.9.0
 )
 
 require (
+	aead.dev/minisign v0.2.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.10 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.24 // indirect
