@@ -515,10 +515,16 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 
 	// 2. Auto Scaling Groups
 	// A non-empty ASG cannot be deleted (returnCode 1250600). Set its capacity to
-	// 0 first so its servers terminate, wait, then delete (retrying while servers drain).
+	// 0 first so its servers terminate, wait, then delete (retrying while servers
+	// drain). Termination protection on ASG-managed servers would block draining,
+	// so disable it up front.
 	if len(summary.AutoScalingGroups) > 0 {
+		if len(summary.Servers) > 0 {
+			logFn("  ASG 서버 반납 보호 해제 중...")
+			c.disableServerProtection(summary.Servers, logFn)
+		}
 		for _, asg := range summary.AutoScalingGroups {
-			logFn(fmt.Sprintf("  ASG 용량 0으로 설정: %s (%s)", asg.AutoScalingGroupName, asg.AutoScalingGroupNo))
+			logFn(fmt.Sprintf("  ASG 용량(최소/최대/기대) 0으로 설정: %s (%s)", asg.AutoScalingGroupName, asg.AutoScalingGroupNo))
 			if err := c.SetAutoScalingGroupSizeZero(asg.AutoScalingGroupNo); err != nil {
 				logFn(fmt.Sprintf("    [경고] 용량 0 설정 실패: %v", err))
 			}
@@ -662,7 +668,7 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 		}
 	}
 
-	// 7. Stop & Terminate Servers
+	// 7. Stop -> disable termination protection -> Terminate Servers.
 	if len(summary.Servers) > 0 {
 		var runningNos []string
 		for _, s := range summary.Servers {
@@ -680,25 +686,25 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 			}
 		}
 
+		// 반납 보호 해제 (보호된 서버는 반납이 막히므로 먼저 전부 해제)
+		logFn("  서버 반납 보호 해제 중...")
+		c.disableServerProtection(summary.Servers, logFn)
+
 		var allNos []string
 		for _, s := range summary.Servers {
 			allNos = append(allNos, s.ServerInstanceNo)
 		}
 		logFn(fmt.Sprintf("  서버 %d대 반납(삭제) 중...", len(allNos)))
-		err := c.TerminateServers(allNos)
-		if err != nil {
-			// A protected server (반납 보호) blocks termination. Disable protection
-			// on all target servers and retry once.
-			logFn("    [경고] 서버 반납 실패, 반납 보호 해제 후 재시도...")
-			for _, s := range summary.Servers {
-				if e := c.SetServerTerminationProtection(s.ServerInstanceNo, false); e != nil {
-					logFn(fmt.Sprintf("      [경고] 반납 보호 해제 실패 (%s): %v", s.ServerName, e))
-				} else {
-					logFn(fmt.Sprintf("      반납 보호 해제: %s", s.ServerName))
-				}
+		var err error
+		for retry := 0; retry < 3; retry++ {
+			if retry > 0 {
+				time.Sleep(5 * time.Second)
+				logFn(fmt.Sprintf("    재시도 %d/3...", retry+1))
 			}
-			time.Sleep(3 * time.Second)
-			err = c.TerminateServers(allNos)
+			if err = c.TerminateServers(allNos); err == nil {
+				break
+			}
+			logFn(fmt.Sprintf("    [대기] %v", err))
 		}
 		if err != nil {
 			logFn(fmt.Sprintf("    [실패] 서버 반납: %v", err))
@@ -1029,6 +1035,16 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 	}
 
 	return success, fail
+}
+
+// disableServerProtection turns off 반납 보호 (termination protection) on every
+// given server so they can be terminated (by us or by a draining ASG).
+func (c *Client) disableServerProtection(servers []ServerInstance, logFn func(string)) {
+	for _, s := range servers {
+		if err := c.SetServerTerminationProtection(s.ServerInstanceNo, false); err != nil {
+			logFn(fmt.Sprintf("    [경고] 반납 보호 해제 실패 (%s): %v", s.ServerName, err))
+		}
+	}
 }
 
 func (c *Client) waitForNatGatewaysDeletion(natGateways []NatGatewayInstance, logFn func(string)) {
