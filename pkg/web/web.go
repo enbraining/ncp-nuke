@@ -604,9 +604,10 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 
 func friendlyScanErr(account string, e error) string {
 	msg := e.Error()
-	for _, sig := range []string{"HTTP 403", "StatusCode: 403", "AccessDenied", "InvalidAccessKeyId"} {
+	for _, sig := range []string{"HTTP 403", "StatusCode: 403", "AccessDenied", "InvalidAccessKeyId",
+		"HTTP 404", "URL not found", "Not Found Exception"} {
 		if strings.Contains(msg, sig) {
-			return fmt.Sprintf("[%s] 권한 없음/미사용: %v", account, e)
+			return fmt.Sprintf("[%s] 권한 없음/미지원: %v", account, e)
 		}
 	}
 	return fmt.Sprintf("[%s] %v", account, e)

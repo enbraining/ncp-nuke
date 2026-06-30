@@ -18,9 +18,13 @@ import (
 // as a benign skip rather than a warning.
 func formatResourceErr(e error) string {
 	msg := e.Error()
-	for _, sig := range []string{"HTTP 403", "StatusCode: 403", "AccessDenied", "InvalidAccessKeyId"} {
+	// 403/access-key → no permission; 404/URL not found → product not available
+	// on this account/platform (e.g. classic-only Cloud DB, MariaDB). Both are
+	// expected for many accounts, so show as a benign skip, not a warning.
+	for _, sig := range []string{"HTTP 403", "StatusCode: 403", "AccessDenied", "InvalidAccessKeyId",
+		"HTTP 404", "URL not found", "Not Found Exception"} {
 		if strings.Contains(msg, sig) {
-			return fmt.Sprintf("    [건너뜀] 권한 없음/미사용: %v", e)
+			return fmt.Sprintf("    [건너뜀] 권한 없음/미지원: %v", e)
 		}
 	}
 	return fmt.Sprintf("    [경고] 조회 오류: %v", e)
