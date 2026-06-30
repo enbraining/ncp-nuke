@@ -451,18 +451,26 @@ async function checkUpdate() {
       btn.disabled = true;
       const orig = btn.innerHTML;
       btn.innerHTML = `${icon('ti-loader-2 spin')} 업데이트 중...`;
+      const fail = async (msg) => {
+        // Don't silently open the browser — explain, then offer a manual download.
+        btn.disabled = false;
+        btn.innerHTML = `${icon('ti-download')} 설치 파일 다운로드`;
+        btn.title = '자동 업데이트 실패: ' + msg + '\n(설치 위치에 쓰기 권한이 없을 수 있습니다)';
+        btn.onclick = () => {
+          if (DESKTOP) fetch('/api/open-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+          else window.open(url,'_blank');
+        };
+        alert('앱 내 자동 업데이트에 실패했습니다.\n사유: ' + msg + '\n\n설치 위치(예: 응용 프로그램 폴더 / Program Files)에 쓰기 권한이 필요합니다. 버튼을 다시 누르면 설치 파일을 받습니다.');
+      };
       try {
         const res = await fetch('/api/update/apply', {method:'POST'});
         if (res.ok) {
           btn.innerHTML = `${icon('ti-check')} 업데이트 완료 — 재시작 중...`;
           return; // backend relaunches & exits; this window will close
         }
-        // fall back to opening the download page
-        try { await fetch('/api/open-url', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})}); } catch(_) {}
-        btn.innerHTML = orig; btn.disabled = false;
-      } catch(_) {
-        try { await fetch('/api/open-url', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})}); } catch(_) {}
-        btn.innerHTML = orig; btn.disabled = false;
+        await fail(await res.text());
+      } catch(e) {
+        await fail(e.message);
       }
     };
   } catch(_) {}
