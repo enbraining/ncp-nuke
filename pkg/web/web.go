@@ -10,13 +10,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"ncp-nuke/pkg/config"
 	"ncp-nuke/pkg/excel"
 	"ncp-nuke/pkg/ncp"
 	"ncp-nuke/pkg/runner"
+	"ncp-nuke/pkg/version"
 )
 
 //go:embed static/*
@@ -74,6 +77,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/desktop/pick-accounts", s.handlePickAccounts)
 	mux.HandleFunc("/api/desktop/save-template", s.handleSaveTemplate)
 	mux.HandleFunc("/api/env", s.handleEnv)
+	mux.HandleFunc("/api/update/check", s.handleUpdateCheck)
+	mux.HandleFunc("/api/open-url", s.handleOpenURL)
 	mux.HandleFunc("/api/scan", s.handleScan)
 	mux.HandleFunc("/api/execute", s.handleExecute)
 	return mux
@@ -140,7 +145,109 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 // (so it can use native file dialogs instead of browser upload/download).
 func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"desktop": s.Desktop})
+	json.NewEncoder(w).Encode(map[string]any{"desktop": s.Desktop, "version": version.Version})
+}
+
+// handleUpdateCheck queries the latest GitHub release and reports whether an
+// update is available, with an OS-appropriate download URL.
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	cli := &http.Client{Timeout: 8 * time.Second}
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/"+version.Repo+"/releases/latest", nil)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := cli.Do(req)
+	if err != nil {
+		http.Error(w, "업데이트 확인 실패: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		http.Error(w, fmt.Sprintf("GitHub 응답 %d", resp.StatusCode), http.StatusBadGateway)
+		return
+	}
+	var rel struct {
+		TagName string `json:"tag_name"`
+		HTMLURL string `json:"html_url"`
+		Assets  []struct {
+			Name string `json:"name"`
+			URL  string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		http.Error(w, "응답 파싱 실패: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	latest := strings.TrimPrefix(rel.TagName, "v")
+	download := rel.HTMLURL
+	for _, a := range rel.Assets {
+		if matchOSAsset(a.Name) {
+			download = a.URL
+			break
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"current":         version.Version,
+		"latest":          latest,
+		"updateAvailable": semverLess(version.Version, latest),
+		"htmlUrl":         rel.HTMLURL,
+		"downloadUrl":     download,
+	})
+}
+
+// matchOSAsset picks the release asset matching the current OS.
+func matchOSAsset(name string) bool {
+	switch runtime.GOOS {
+	case "darwin":
+		return strings.HasSuffix(name, ".dmg")
+	case "windows":
+		return strings.Contains(name, "_setup.exe")
+	}
+	return false
+}
+
+// semverLess reports whether a < b for dotted numeric versions.
+func semverLess(a, b string) bool {
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < 3; i++ {
+		var x, y int
+		if i < len(pa) {
+			fmt.Sscanf(pa[i], "%d", &x)
+		}
+		if i < len(pb) {
+			fmt.Sscanf(pb[i], "%d", &y)
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
+}
+
+type openURLRequest struct {
+	URL string `json:"url"`
+}
+
+// handleOpenURL opens a URL in the system browser (desktop only).
+func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
+	if !s.Desktop {
+		http.Error(w, "데스크톱 모드에서만 사용 가능", http.StatusBadRequest)
+		return
+	}
+	var req openURLRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		http.Error(w, "url이 필요합니다", http.StatusBadRequest)
+		return
+	}
+	if !strings.HasPrefix(req.URL, "https://") {
+		http.Error(w, "https URL만 허용", http.StatusBadRequest)
+		return
+	}
+	if err := openURL(req.URL); err != nil {
+		http.Error(w, "브라우저 열기 실패: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handlePickAccounts (desktop) opens a native file chooser, loads the picked

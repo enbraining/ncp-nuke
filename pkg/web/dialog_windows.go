@@ -36,3 +36,10 @@ func chooseFolderDialog() (dir string, cancelled bool, err error) {
 		`$f = New-Object System.Windows.Forms.FolderBrowserDialog; ` +
 		`if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($f.SelectedPath) }`)
 }
+
+// openURL opens a URL in the default browser (no console window).
+func openURL(url string) error {
+	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	return cmd.Start()
+}

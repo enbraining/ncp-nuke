@@ -24,3 +24,6 @@ func chooseFolderDialog() (dir string, cancelled bool, err error) {
 	}
 	return strings.TrimSpace(string(out)), false, nil
 }
+
+// openURL opens a URL in the default browser.
+func openURL(url string) error { return exec.Command("open", url).Start() }
