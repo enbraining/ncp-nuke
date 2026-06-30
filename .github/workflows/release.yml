@@ -4,121 +4,50 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (e.g. 1.0.1) — builds without creating a tag release"
+        required: true
 
 permissions:
   contents: write
 
 jobs:
-  # 1. 일반 바이너리 빌드 및 릴리즈 (Linux, macOS, Windows - Archive 형식)
-  goreleaser:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: macos-14   # Apple Silicon mac (Xcode + codesign available)
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
+      - uses: actions/checkout@v4
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+      - uses: actions/setup-go@v5
         with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          go-version: 'stable'
 
-  # 2. Windows MSI 패키징
-  msi-windows:
-    needs: goreleaser
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      
-      - name: Build Binary
-        env:
-          CGO_ENABLED: 0
-        run: go build -o ncp-nuke.exe main.go
-      
-      # WiX Toolset은 windows-latest 러너에 기본 설치되어 있음
-      - name: Build MSI
+      - name: Install packaging tools
+        run: brew install mingw-w64 makensis msitools
+
+      - name: Resolve version
+        id: ver
         run: |
-          $Tag = "${{ github.ref_name }}"
-          $Version = $Tag.TrimStart("v")
-          # Ensure version has 4 parts (e.g., 1.0.0 -> 1.0.0.0)
-          if ($Version.Split('.').Count -eq 3) {
-            $Version = "$Version.0"
-          }
-          Write-Host "Building MSI for version $Version"
-          candle "-dVersion=$Version" build/package/windows/ncp-nuke.wxs
-          light -out ncp-nuke-windows-amd64.msi ncp-nuke.wixobj
-      
-      - name: Upload MSI to Release
-        uses: softprops/action-gh-release@v1
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "v=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            REF="${{ github.ref_name }}"; echo "v=${REF#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build all GUI artifacts (DMG, Windows exe/setup/MSI)
+        run: bash scripts/build-release.sh "${{ steps.ver.outputs.v }}"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ncp-nuke-${{ steps.ver.outputs.v }}
+          path: dist/*
+
+      - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
-          files: ncp-nuke-windows-amd64.msi
-
-  # 3. macOS DMG 패키징
-  dmg-macos:
-    needs: goreleaser
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      
-      - name: Build Binary
-        run: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o ncp-nuke main.go
-      
-      - name: Install create-dmg
-        run: brew install create-dmg
-      
-      - name: Create DMG
-        run: |
-          mkdir -p dist
-          cp ncp-nuke dist/
-          create-dmg \
-            --volname "NCP Nuke" \
-            --window-pos 200 120 \
-            --window-size 800 400 \
-            --icon-size 100 \
-            --icon "ncp-nuke" 200 190 \
-            --hide-extension "ncp-nuke" \
-            --app-drop-link 600 185 \
-            "ncp-nuke-darwin-arm64.dmg" \
-            "dist/"
-        continue-on-error: true # 아이콘이 없으면 경고가 뜰 수 있음
-
-      - name: Upload DMG to Release
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: ncp-nuke-darwin-arm64.dmg
-
-  publish-winget:
-    # 중요: MSI 파일 업로드가 끝난 후 실행되어야 파일을 찾을 수 있음
-    needs: msi-windows 
-    runs-on: ubuntu-latest
-    steps:
-      - name: Submit to WinGet Packages
-        uses: vedantmgoyal2009/winget-releaser@v2
-        with:
-          identifier: Enbraining.NCPNuke
-          # (?i)를 사용하여 대소문자 구분 없이 .msi 파일 매칭
-          installers-regex: '(?i)\.msi$' 
-          token: ${{ secrets.GH_TOKEN }}
+          files: |
+            dist/NCP-Nuke_*
+            dist/checksums.txt
