@@ -633,9 +633,14 @@ async function execute() {
   state.running=true; updateS3(); resetLog();
   let body;
   if (state.mode==='activate') {
-    body={selected:[...state.selected], subAction:'activate', password:document.getElementById('actPassword').value, deleteTypes:[], confirm:''};
+    body={selected:[...state.selected], subAction:'activate', password:document.getElementById('actPassword').value, targets:{}, confirm:''};
   } else {
-    body={selected:[...state.selected], subAction:state.subAction, password:'', deleteTypes:[...state.delTypes], confirm:document.getElementById('confirm').value};
+    // Only the scanned instances of each selected type are deleted (by id/name).
+    const targets = {};
+    for (const t of state.delTypes) {
+      targets[t] = (state.details[t]||[]).map(it => it.id || it.name).filter(Boolean);
+    }
+    body={selected:[...state.selected], subAction:state.subAction, password:'', targets, confirm:document.getElementById('confirm').value};
   }
   try {
     const res=await fetch('/api/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -653,36 +658,48 @@ async function execute() {
   finally { state.running=false; updateS3(); }
 }
 
-/* ---------- structured progress log ---------- */
-const view={ log:null, card:null, sections:null, sectionCount:0 };
-function resetLog(){ const log=document.getElementById('log'); log.innerHTML=''; view.log=log; view.card=null; view.sections={}; view.sectionCount=0; }
+/* ---------- structured progress log (per-account, parallel-safe) ---------- */
+// Accounts run in parallel; events carry ev.account so each line is routed to
+// that account's card (logs never interleave within a card).
+const view = { log:null, cards:{} };
+function resetLog(){ const log=document.getElementById('log'); log.innerHTML=''; view.log=log; view.cards={}; }
 function statusClass(s){ return s==='fail'?'log-fail':s==='ok'?'log-ok':s==='skip'?'log-skip':'log-info'; }
+
+function cardFor(account) {
+  const key = account || '_';
+  if (view.cards[key]) return view.cards[key];
+  const card = document.createElement('div'); card.className='acct-card';
+  const title = account ? `${icon('ti-folder')} ${esc(account)}` : '진행';
+  card.innerHTML = `<div class="acct-head">${title}</div><div class="acct-body"></div>`;
+  view.log.appendChild(card);
+  const ctx = { body: card.querySelector('.acct-body'), sections:{}, count:0 };
+  view.cards[key] = ctx;
+  return ctx;
+}
+
 function handleEvent(ev) {
-  const log=view.log||document.getElementById('log');
-  if (ev.type==='account') {
-    const name=ev.text.replace(/^\[루트 계정:\s*/,'').replace(/\]$/,'');
-    const card=document.createElement('div'); card.className='acct-card';
-    card.innerHTML=`<div class="acct-head">${icon('ti-folder')} ${esc(name)}</div>`;
-    log.appendChild(card); view.card=card; view.sections={}; view.sectionCount=0;
-  } else if (ev.type==='resource') {
-    const sec=sectionFor(ev.resource, log);
-    const d=document.createElement('div'); d.className='dline '+statusClass(ev.status);
-    d.style.paddingLeft=Math.max(0,(ev.depth-1))*14+'px'; d.textContent=ev.text;
+  const ctx = cardFor(ev.account);
+  if (ev.type === 'account') {
+    // card already created/headed by cardFor
+  } else if (ev.type === 'resource') {
+    const sec = sectionFor(ctx, ev.resource);
+    const d = document.createElement('div'); d.className='dline '+statusClass(ev.status);
+    d.style.paddingLeft = Math.max(0,(ev.depth-1))*14+'px'; d.textContent = ev.text;
     sec.querySelector('.details').appendChild(d);
     if (ev.status==='fail') markSection(sec,'fail','실패'); else if (ev.status==='ok' && !sec.dataset.fail) markSection(sec,'ok','완료');
   } else {
-    const g=document.createElement('div'); g.className='global-line '+statusClass(ev.status); g.textContent=ev.text;
-    (view.card||log).appendChild(g);
+    const g = document.createElement('div'); g.className='global-line '+statusClass(ev.status); g.textContent=ev.text;
+    ctx.body.appendChild(g);
   }
-  log.scrollTop=log.scrollHeight;
+  view.log.scrollTop = view.log.scrollHeight;
 }
-function sectionFor(resource, log) {
-  if (!view.sections) view.sections={};
-  if (view.sections[resource]) return view.sections[resource];
-  view.sectionCount++; const m=resMeta(resource);
-  const sec=document.createElement('details'); sec.className='section'; sec.open=true;
-  sec.innerHTML=`<summary><i class="ti ti-chevron-right sec-caret"></i><span class="sec-num">${view.sectionCount}.</span><span class="sec-title">${icon(m.icon)} ${esc(m.ko)}</span><span class="sec-badge" style="display:none"></span></summary><div class="details"></div>`;
-  (view.card||log).appendChild(sec); view.sections[resource]=sec; return sec;
+
+function sectionFor(ctx, resource) {
+  if (ctx.sections[resource]) return ctx.sections[resource];
+  ctx.count++; const m = resMeta(resource);
+  const sec = document.createElement('details'); sec.className='section'; sec.open=true;
+  sec.innerHTML = `<summary><i class="ti ti-chevron-right sec-caret"></i><span class="sec-num">${ctx.count}.</span><span class="sec-title">${icon(m.icon)} ${esc(m.ko)}</span><span class="sec-badge" style="display:none"></span></summary><div class="details"></div>`;
+  ctx.body.appendChild(sec); ctx.sections[resource]=sec; return sec;
 }
 function markSection(sec,cls,label){ if(cls==='fail')sec.dataset.fail='1'; const b=sec.querySelector('.sec-badge'); if(!b)return; b.className='sec-badge '+cls; b.textContent=label; b.style.display=''; }
 

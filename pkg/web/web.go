@@ -537,8 +537,11 @@ type executeRequest struct {
 	Selected    []int    `json:"selected"`
 	SubAction   string   `json:"subAction"` // none | activate | deactivate
 	Password    string   `json:"password"`
-	DeleteTypes []string `json:"deleteTypes"` // resource type keys (Breakdown names)
-	Confirm     string   `json:"confirm"`
+	// Targets maps a resource type (Breakdown name) to the specific scanned
+	// identifiers (id, or name) to delete — so only the resources shown in the
+	// scan are removed, not anything created since.
+	Targets map[string][]string `json:"targets"`
+	Confirm string              `json:"confirm"`
 }
 
 func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
@@ -564,11 +567,11 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	if req.SubAction == "" {
 		req.SubAction = "none"
 	}
-	if len(req.DeleteTypes) == 0 && req.SubAction == "none" {
+	if len(req.Targets) == 0 && req.SubAction == "none" {
 		http.Error(w, "수행할 작업이 없습니다 (삭제할 리소스 또는 서브계정 작업을 선택하세요)", http.StatusBadRequest)
 		return
 	}
-	if len(req.DeleteTypes) > 0 && req.Confirm != confirmPhrase {
+	if len(req.Targets) > 0 && req.Confirm != confirmPhrase {
 		http.Error(w, fmt.Sprintf("삭제 확인 문구가 일치하지 않습니다. \"%s\" 를 정확히 입력하세요.", confirmPhrase), http.StatusBadRequest)
 		return
 	}
@@ -586,44 +589,66 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 
 	selected := s.selectedMap(req.Selected)
-	currentResource := ""
-	send := func(line string) {
-		ev := classifyLine(line, &currentResource)
+	cfg := buildDeleteConfig(req.Targets)
+
+	// Serialize SSE writes; each account runs in its own goroutine so deletion
+	// happens in parallel across accounts. Events are tagged with the account so
+	// the UI routes each line to that account's card.
+	var emitMu sync.Mutex
+	emit := func(ev progressEvent) {
 		if ev.Text == "" {
 			return
 		}
+		emitMu.Lock()
+		defer emitMu.Unlock()
 		b, _ := json.Marshal(ev)
 		fmt.Fprintf(w, "data: %s\n\n", b)
 		flusher.Flush()
 	}
 
-	// 1) Sub-account action (independent of resource deletion).
-	if req.SubAction == "activate" || req.SubAction == "deactivate" {
-		runner.Process(s.accounts, selected, req.SubAction, req.Password, false, nil, send)
-		currentResource = ""
+	var wg sync.WaitGroup
+	for i := range s.accounts {
+		if !selected[i] {
+			continue
+		}
+		acc := s.accounts[i]
+		one := map[int]bool{i: true}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cur := "" // per-account resource grouping state
+			send := func(line string) {
+				ev := classifyLine(line, &cur)
+				ev.Account = acc.AccountName
+				emit(ev)
+			}
+			if req.SubAction == "activate" || req.SubAction == "deactivate" {
+				runner.Process(s.accounts, one, req.SubAction, req.Password, false, nil, send)
+				cur = ""
+			}
+			if len(req.Targets) > 0 {
+				runner.Process(s.accounts, one, "nuke", "", false, cfg, send)
+			}
+		}()
 	}
-
-	// 2) Delete only the selected resource types (nuke with a filter that disables
-	//    every other type).
-	if len(req.DeleteTypes) > 0 {
-		cfg := buildDeleteConfig(req.DeleteTypes)
-		runner.Process(s.accounts, selected, "nuke", "", false, cfg, send)
-	}
+	wg.Wait()
 
 	fmt.Fprint(w, "event: done\ndata: end\n\n")
 	flusher.Flush()
 }
 
-// buildDeleteConfig returns a config that enables ONLY the given resource types
-// (by Breakdown name) and disables all others, so a nuke deletes just those.
-func buildDeleteConfig(types []string) *config.Config {
-	want := make(map[string]bool, len(types))
-	for _, t := range types {
-		want[t] = true
-	}
+// buildDeleteConfig returns a config that deletes ONLY the scanned resources:
+// for each selected type, the filter includes just the given identifiers (id or
+// name); every other type is disabled.
+func buildDeleteConfig(targets map[string][]string) *config.Config {
 	disabled := func(name string) config.ResourceFilter {
-		on := want[name]
-		return config.ResourceFilter{Enabled: &on}
+		ids, ok := targets[name]
+		if !ok {
+			off := false
+			return config.ResourceFilter{Enabled: &off}
+		}
+		// Enabled (nil) + Include = only the scanned instances are matched.
+		return config.ResourceFilter{Include: ids}
 	}
 	return &config.Config{
 		Servers:               disabled("Server"),
@@ -658,6 +683,7 @@ func buildDeleteConfig(types []string) *config.Config {
 
 type progressEvent struct {
 	Type     string `json:"type"` // account | global | resource
+	Account  string `json:"account"`
 	Text     string `json:"text"`
 	Resource string `json:"resource"` // section title for type=resource
 	Depth    int    `json:"depth"`
