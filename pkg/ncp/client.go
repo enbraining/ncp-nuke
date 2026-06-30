@@ -19,7 +19,7 @@ const (
 	VCloudDBBaseURL     = "https://ncloud.apigw.ntruss.com/clouddb/v2"
 	VVPCBaseURL         = "https://ncloud.apigw.ntruss.com/vpc/v2"
 	VNKSBaseURL         = "https://nks.apigw.ntruss.com/vnks/v2"
-	VAutoScalingBaseURL = "https://ncloud.apigw.ntruss.com/autoscaling/v2"
+	VAutoScalingBaseURL = "https://ncloud.apigw.ntruss.com/vautoscaling/v2"
 	VMongoDBBaseURL     = "https://ncloud.apigw.ntruss.com/vmongodb/v2"
 	VPostgreSQLBaseURL  = "https://ncloud.apigw.ntruss.com/vpostgresql/v2"
 	VMariaDBBaseURL     = "https://ncloud.apigw.ntruss.com/vmariadb/v2"
