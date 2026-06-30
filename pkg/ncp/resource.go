@@ -514,19 +514,47 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 	}
 
 	// 2. Auto Scaling Groups
-	for _, asg := range summary.AutoScalingGroups {
-		logFn(fmt.Sprintf("  Auto Scaling Group 삭제: %s (%s)", asg.AutoScalingGroupName, asg.AutoScalingGroupNo))
-		if err := c.DeleteAutoScalingGroup(asg.AutoScalingGroupNo); err != nil {
-			logFn(fmt.Sprintf("    [실패] %v", err))
-			fail++
-		} else {
-			logFn("    [성공]")
-			success++
-		}
-	}
+	// A non-empty ASG cannot be deleted (returnCode 1250600). Set its capacity to
+	// 0 first so its servers terminate, wait, then delete (retrying while servers drain).
 	if len(summary.AutoScalingGroups) > 0 {
-		logFn("  ASG 삭제 및 서버 종료 대기 (60초)...")
+		for _, asg := range summary.AutoScalingGroups {
+			logFn(fmt.Sprintf("  ASG 용량 0으로 설정: %s (%s)", asg.AutoScalingGroupName, asg.AutoScalingGroupNo))
+			if err := c.SetAutoScalingGroupSizeZero(asg.AutoScalingGroupNo); err != nil {
+				logFn(fmt.Sprintf("    [경고] 용량 0 설정 실패: %v", err))
+			}
+		}
+		logFn("  ASG 서버 종료 대기 (60초)...")
 		time.Sleep(60 * time.Second)
+
+		for _, asg := range summary.AutoScalingGroups {
+			logFn(fmt.Sprintf("  Auto Scaling Group 삭제: %s (%s)", asg.AutoScalingGroupName, asg.AutoScalingGroupNo))
+			maxRetries := 5
+			var lastErr error
+			for retry := 0; retry < maxRetries; retry++ {
+				if retry > 0 {
+					logFn(fmt.Sprintf("    서버 종료 대기 후 재시도 %d/%d...", retry+1, maxRetries))
+					time.Sleep(30 * time.Second)
+				}
+				if err := c.DeleteAutoScalingGroup(asg.AutoScalingGroupNo); err != nil {
+					lastErr = err
+					if retry < maxRetries-1 {
+						logFn(fmt.Sprintf("    [대기] %v", err))
+					}
+				} else {
+					lastErr = nil
+					break
+				}
+			}
+			if lastErr != nil {
+				logFn(fmt.Sprintf("    [실패] %v", lastErr))
+				fail++
+			} else {
+				logFn("    [성공]")
+				success++
+			}
+		}
+		logFn("  ASG 삭제 및 서버 종료 대기 (30초)...")
+		time.Sleep(30 * time.Second)
 	}
 
 	// 3. Launch Configurations (must delete after ASG)

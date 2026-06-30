@@ -355,6 +355,27 @@ func (c *Client) ListAutoScalingGroups() ([]AutoScalingGroup, error) {
 	return resp.Response.AutoScalingGroupList, nil
 }
 
+// SetAutoScalingGroupSizeZero sets an Auto Scaling Group's min/max/desired
+// capacity to 0 so its servers terminate and the group can then be deleted
+// (NCP rejects deleting a non-empty group, returnCode 1250600).
+func (c *Client) SetAutoScalingGroupSizeZero(groupNo string) error {
+	params := url.Values{}
+	params.Set("responseFormatType", "json")
+	params.Set("autoScalingGroupNo", groupNo)
+	params.Set("minSize", "0")
+	params.Set("maxSize", "0")
+	params.Set("desiredCapacity", "0")
+	path := "/updateAutoScalingGroup?" + params.Encode()
+	body, status, err := c.doRequestWithBase(VAutoScalingBaseURL, "GET", path, nil)
+	if err != nil {
+		return err
+	}
+	if status != 200 {
+		return fmt.Errorf("HTTP %d - %s", status, string(body))
+	}
+	return nil
+}
+
 func (c *Client) DeleteAutoScalingGroup(groupNo string) error {
 	params := url.Values{}
 	params.Set("responseFormatType", "json")
