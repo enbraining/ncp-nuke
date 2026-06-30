@@ -4,6 +4,7 @@
 package runner
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -27,7 +28,8 @@ func formatResourceErr(e error) string {
 
 // Process runs the selected action against the selected accounts.
 // action is one of: "activate", "deactivate", "nuke", "list".
-func Process(accounts []ncp.RootAccount, selected map[int]bool, action, globalPassword string, cleanup bool, cfg *config.Config, logFn func(string)) {
+// ctx cancellation stops launching further work (in-flight API calls finish).
+func Process(ctx context.Context, accounts []ncp.RootAccount, selected map[int]bool, action, globalPassword string, cleanup bool, cfg *config.Config, logFn func(string)) {
 	logFn("작업 시작...")
 
 	totalSuccess, totalFail := 0, 0
@@ -36,6 +38,10 @@ func Process(accounts []ncp.RootAccount, selected map[int]bool, action, globalPa
 	for i, account := range accounts {
 		if !selected[i] {
 			continue
+		}
+		if ctx.Err() != nil {
+			logFn("\n[취소됨] 작업이 취소되었습니다.")
+			return
 		}
 
 		logFn(fmt.Sprintf("\n[루트 계정: %s]", account.AccountName))
@@ -76,7 +82,7 @@ func Process(accounts []ncp.RootAccount, selected map[int]bool, action, globalPa
 
 			if summary.TotalCount() > 0 {
 				logFn(fmt.Sprintf("  총 %d개 서비스 해지 및 리소스 삭제 시작...", summary.TotalCount()))
-				s, f := client.CleanupAllResources(summary, logFn)
+				s, f := client.CleanupAllResources(ctx, summary, logFn)
 				totalCleanupSuccess += s
 				totalCleanupFail += f
 				logFn(fmt.Sprintf("  서비스 해지 및 리소스 삭제 결과: 성공 %d, 실패 %d", s, f))

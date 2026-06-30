@@ -704,11 +704,11 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 				emit(ev)
 			}
 			if req.SubAction == "activate" || req.SubAction == "deactivate" {
-				runner.Process(s.accounts, one, req.SubAction, req.Password, false, nil, send)
+				runner.Process(r.Context(), s.accounts, one, req.SubAction, req.Password, false, nil, send)
 				cur = ""
 			}
 			if len(req.Targets) > 0 {
-				runner.Process(s.accounts, one, "nuke", "", false, cfg, send)
+				runner.Process(r.Context(), s.accounts, one, "nuke", "", false, cfg, send)
 			}
 		}()
 	}

@@ -604,7 +604,17 @@ function updateS2() {
 }
 
 /* ---------- step 3 ---------- */
-document.getElementById('backTo2').addEventListener('click', () => gotoStep(2));
+document.getElementById('backTo2').addEventListener('click', () => {
+  if (state.running) {
+    if (confirm('진행 중인 삭제 작업을 취소하고 이전 단계로 돌아가시겠습니까?\n(이미 요청된 삭제는 되돌릴 수 없습니다)')) {
+      if (state.abort) state.abort.abort();   // cancel the streaming request -> backend stops launching more deletes
+      state.running = false;
+      gotoStep(2);
+    }
+    return;
+  }
+  gotoStep(2);
+});
 document.querySelectorAll('#subActions .opt').forEach(opt=>opt.addEventListener('click',()=>{
   document.querySelectorAll('#subActions .opt').forEach(o=>o.classList.remove('sel'));
   opt.classList.add('sel'); state.subAction=opt.dataset.sub; updateS3();
@@ -655,8 +665,9 @@ async function execute() {
     }
     body={selected:[...state.selected], subAction:state.subAction, password:'', targets, confirm:document.getElementById('confirm').value};
   }
+  state.abort = new AbortController();
   try {
-    const res=await fetch('/api/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const res=await fetch('/api/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:state.abort.signal});
     if(!res.ok){ handleEvent({type:'global',text:'[오류] '+(await res.text()),status:'fail'}); return; }
     const reader=res.body.getReader(); const dec=new TextDecoder(); let buf='';
     while (true) {
@@ -667,8 +678,8 @@ async function execute() {
         for (const line of chunk.split('\n')) if (line.startsWith('data: ')) { const p=line.slice(6); if(p==='end')continue; try{handleEvent(JSON.parse(p));}catch(_){} }
       }
     }
-  } catch(e){ handleEvent({type:'global',text:'[오류] '+e.message,status:'fail'}); }
-  finally { state.running=false; updateS3(); }
+  } catch(e){ if (e.name!=='AbortError') handleEvent({type:'global',text:'[오류] '+e.message,status:'fail'}); }
+  finally { state.running=false; state.abort=null; updateS3(); }
 }
 
 /* ---------- structured progress log (per-account, parallel-safe) ---------- */

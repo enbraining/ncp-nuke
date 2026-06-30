@@ -1,6 +1,7 @@
 package ncp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -506,10 +507,30 @@ func (c *Client) ListAllResources() (*ResourceSummary, []error) {
 //    - Public IP -> ACG -> Network ACL
 //    - Subnet (완전 삭제 대기) -> VPC
 // 6. Server Resources: InitScript -> LoginKey -> PlacementGroup
-func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string)) (int, int) {
+func (c *Client) CleanupAllResources(ctx context.Context, summary *ResourceSummary, logFn func(string)) (int, int) {
 	success, fail := 0, 0
 
+	// cancelled reports whether the operation was cancelled (stop launching more work).
+	cancelled := func() bool {
+		if ctx.Err() != nil {
+			logFn("  [취소됨] 남은 삭제 작업을 중단합니다.")
+			return true
+		}
+		return false
+	}
+	// sleepCtx waits d unless cancelled; returns false if cancelled.
+	sleepCtx := func(d time.Duration) bool {
+		select {
+		case <-time.After(d):
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
 	// 1. NKS Clusters
+	if cancelled() {
+		return success, fail
+	}
 	for _, k := range summary.NksClusters {
 		logFn(fmt.Sprintf("  NKS 클러스터 서비스 해지: %s (%s)", k.Name, k.Uuid))
 		if err := c.DeleteNksCluster(k.Uuid); err != nil {
@@ -522,7 +543,7 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 	}
 	if len(summary.NksClusters) > 0 {
 		logFn("  NKS 클러스터 삭제 대기 (60초)...")
-		time.Sleep(60 * time.Second)
+		sleepCtx(60 * time.Second)
 	}
 
 	// 2. Auto Scaling Groups
@@ -530,6 +551,9 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 	// 0 first so its servers terminate, wait, then delete (retrying while servers
 	// drain). Termination protection on ASG-managed servers would block draining,
 	// so disable it up front.
+	if cancelled() {
+		return success, fail
+	}
 	if len(summary.AutoScalingGroups) > 0 {
 		if len(summary.Servers) > 0 {
 			logFn("  ASG 서버 반납 보호 해제 중...")
@@ -680,6 +704,9 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 		}
 	}
 
+	if cancelled() {
+		return success, fail
+	}
 	// 7. Stop -> disable termination protection -> Terminate Servers.
 	if len(summary.Servers) > 0 {
 		var runningNos []string
@@ -788,6 +815,9 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 		}
 	}
 
+	if cancelled() {
+		return success, fail
+	}
 	// 12. Route Tables: remove routes that target the NAT Gateways / VPC Peerings
 	// we are about to delete. getRouteList does not reliably populate
 	// targetTypeCode, so match each route by targetNo against the in-scope
@@ -943,6 +973,9 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 		}
 	}
 
+	if cancelled() {
+		return success, fail
+	}
 	// 18. Subnets
 	for _, subnet := range summary.Subnets {
 		logFn(fmt.Sprintf("  Subnet 삭제: %s (%s)", subnet.SubnetName, subnet.SubnetNo))
@@ -1034,6 +1067,9 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 		}
 	}
 
+	if cancelled() {
+		return success, fail
+	}
 	// 23. Object Storage Buckets (객체 전부 비운 뒤 버킷 삭제, VPC와 독립)
 	for _, b := range summary.Buckets {
 		logFn(fmt.Sprintf("  Object Storage 버킷 비우기/삭제: %s", b.Name))
@@ -1046,6 +1082,9 @@ func (c *Client) CleanupAllResources(summary *ResourceSummary, logFn func(string
 		}
 	}
 
+	if cancelled() {
+		return success, fail
+	}
 	// 24. API Gateway Products
 	for _, p := range summary.ApiGatewayProducts {
 		logFn(fmt.Sprintf("  API Gateway Product 삭제: %s (%s)", p.ProductName, p.ProductId))

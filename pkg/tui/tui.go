@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -272,7 +273,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.state = stateRunning
 				go func() {
-					runner.Process(m.accounts, m.selected, m.action, m.globalPassword, m.cleanup, m.cfg, func(s string) {
+					runner.Process(context.Background(), m.accounts, m.selected, m.action, m.globalPassword, m.cleanup, m.cfg, func(s string) {
 						m.logChan <- s
 					})
 					close(m.logChan)
@@ -293,7 +294,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.confirmInput.Value() == confirmPhrase {
 					m.state = stateRunning
 					go func() {
-						runner.Process(m.accounts, m.selected, m.action, m.globalPassword, m.cleanup, m.cfg, func(s string) {
+						runner.Process(context.Background(), m.accounts, m.selected, m.action, m.globalPassword, m.cleanup, m.cfg, func(s string) {
 							m.logChan <- s
 						})
 						close(m.logChan)
